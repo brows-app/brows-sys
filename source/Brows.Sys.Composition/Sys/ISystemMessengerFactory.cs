@@ -6,7 +6,7 @@ namespace Brows.Sys;
 /// <summary>
 /// Provides platform-specific system messengers through composition.
 /// </summary>
-public interface ISystemMessengerFactory : IExport {
+internal interface ISystemMessengerFactory : IExport {
     /// <summary>
     /// Creates a system messenger for a window supported by this factory.
     /// </summary>

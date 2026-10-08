@@ -1,6 +1,8 @@
 ﻿[assembly: ComVisible(false)]
 [assembly: InternalsVisibleTo("Brows.Sys.Composition.Tests")]
+[assembly: InternalsVisibleTo("Brows.Sys.Win32.Windows")]
 [assembly: InternalsVisibleTo("Brows.Sys.Win32.Windows.Sample")]
+[assembly: InternalsVisibleTo("Brows.Sys.Win32.Windows.Tests")]
 
 #if NETFRAMEWORK
 #pragma warning disable IDE0161 // Convert to file-scoped namespace

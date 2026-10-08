@@ -40,6 +40,12 @@ factory, and sample window. Composition injects `ISystemMessengerSet` into the
 window before it is shown modally. Reading starts after `SourceInitialized`;
 row updates are marshaled to the window dispatcher.
 
+The sample assembly has friend access to the libraries' internal types through
+`InternalsVisibleTo`, allowing this explicit bootstrap. Application code outside
+this repository should configure composition to discover the library assemblies
+and resolve the public `ISystemMessengerSet`, as shown in the
+[Windows adapter README](../../source/Brows.Sys.Win32.Windows/README.md).
+
 The listener automatically registers disk, volume, and WPD interface classes.
 Registration failure is surfaced through the existing error/status display;
 partial registrations are rolled back. Source closure or dispatcher shutdown

@@ -14,8 +14,8 @@ clipboard updates, and other window messages are not currently exposed.
 
 | Package | Target framework | Purpose |
 | --- | --- | --- |
-| [Brows.Sys](source/Brows.Sys/README.md) | `net10.0` | Message and messenger contracts, device-change records, and volume models. |
-| [Brows.Sys.Composition](source/Brows.Sys.Composition/README.md) | `net10.0` | Factory contracts and an async message stream integrated with `Brows.Composition`. |
+| [Brows.Sys](source/Brows.Sys/README.md) | `net10.0` | Public message contracts, device-change records, and volume models. |
+| [Brows.Sys.Composition](source/Brows.Sys.Composition/README.md) | `net10.0` | Public async message stream and internal factories integrated with `Brows.Composition`. |
 | [Brows.Sys.Win32](source/Brows.Sys.Win32/README.md) | `net10.0` | Windows-only native declarations and internal device-message decoding. |
 | [Brows.Sys.Win32.Windows](source/Brows.Sys.Win32.Windows/README.md) | `net10.0-windows` | WPF window hooks that produce typed messages. |
 
@@ -34,8 +34,11 @@ for an example.
 
 `Brows.Sys` and `Brows.Sys.Composition` contain framework-neutral contracts
 and orchestration. The supplied Win32 backend and WPF adapter run on Windows.
-Their implementation classes are internal; applications consume the public
-contracts through composition.
+Messenger creation is reserved for libraries in this repository:
+`ISystemMessenger` and `ISystemMessengerFactory` are internal. Applications
+resolve the public `ISystemMessengerSet` through composition and consume its
+message stream; they cannot implement messengers or factories or create
+messengers directly through the public API.
 
 ## Solution structure
 

@@ -16,7 +16,7 @@ native backend through its dependencies.
 
 ## Composition setup
 
-The adapter's factory is internal and implements the public
+The adapter's factory is internal and implements the internal
 `ISystemMessengerFactory` contract. Configure your `Brows.Composition` host to
 discover both the `Brows.Sys.Composition` and
 `Brows.Sys.Win32.Windows` assemblies. Initialize the host, then obtain the
@@ -31,8 +31,10 @@ var messengerSet = Imports.Find<ISystemMessengerSet>(
     throwIfNotReady: true);
 ```
 
-There is no public `Win32WindowsMessengerFactory` constructor for application
-code. Composition supplies the implementation.
+Messenger creation is reserved for libraries in this repository. Applications
+use the public `ISystemMessengerSet`; `ISystemMessengerFactory`,
+`ISystemMessenger`, and the adapter's implementation types are internal.
+Composition supplies the implementation.
 
 ## Listen to a window
 
@@ -71,7 +73,7 @@ background context, marshal UI changes to `window.Dispatcher`.
 
 ## Accepted windows and ownership
 
-- The factory accepts a WPF `Window` with an existing native handle, or a boxed
+- The message stream accepts a WPF `Window` with an existing native handle, or a boxed
   `nint` whose handle belongs to a live `HwndSource` in the application. A
   `Window` resolves its handle on the window's dispatcher, so both forms work
   from a background thread; a window whose dispatcher is shutting down
@@ -79,9 +81,8 @@ background context, marshal UI changes to `window.Dispatcher`.
 - Arbitrary native HWNDs without a WPF source are unsupported. A zero handle or
   a handle without a live WPF source produces no messenger. Hook attachment also
   declines a source that is disposed or whose dispatcher is shutting down.
-- Hook attachment and removal run on the source's dispatcher. Dispose direct
-  factory results when finished; the composition stream disposes its own
-  results when enumeration ends.
+- Hook attachment and removal run on the source's dispatcher. The composition
+  stream disposes its internal messengers when enumeration ends.
 - Disposal unregisters owned interface notifications and detaches this listener's
   hook. It preserves the borrowed window source and is safe to repeat after the
   owner closes the source.

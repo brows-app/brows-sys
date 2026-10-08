@@ -7,7 +7,7 @@
 /// Consumers that obtain a messenger directly are responsible for disposing it when listening ends.
 /// Event delivery does not guarantee a particular thread or synchronization context.
 /// </remarks>
-public interface ISystemMessenger : IDisposable {
+internal interface ISystemMessenger : IDisposable {
     /// <summary>
     /// Occurs when a system notification is available.
     /// </summary>

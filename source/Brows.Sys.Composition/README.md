@@ -15,20 +15,20 @@ A platform adapter supplies the actual notifications. For WPF on Windows, add
 
 ## Public contracts
 
-Both interfaces are in `Brows.Sys` and inherit `Brows.Composition.IExport`.
+`ISystemMessengerSet` is in `Brows.Sys` and inherits `Brows.Composition.IExport`.
 
-- `ISystemMessengerFactory.CreateSystemMessenger(object window,
-  CancellationToken cancellationToken)` creates an `ISystemMessenger` for a
-  compatible window. The supplied Windows factory returns null for an
-  unsupported window.
 - `ISystemMessengerSet.ReadAllSystemMessages(object window,
   CancellationToken cancellationToken)` returns an
   `IAsyncEnumerable<ISystemMessage>` that combines factory outputs.
 
-The default set implementation is internal and obtains its factories through
-`Brows.Composition` imports. Initialize your application's composition host with
-the `Brows.Sys.Composition` assembly and the assemblies that contain your
-platform factories. Once the host is ready, resolve the set:
+`ISystemMessengerFactory` and `ISystemMessenger` are internal contracts.
+Messenger implementations and creation are reserved for libraries in this
+repository; applications consume the public message stream.
+
+The default set implementation is internal and obtains its internal factories
+through `Brows.Composition` imports. Initialize your application's composition
+host with the `Brows.Sys.Composition` assembly and the supplied platform adapter
+assembly (`Brows.Sys.Win32.Windows` for WPF). Once the host is ready, resolve the set:
 
 ```csharp
 using Brows;

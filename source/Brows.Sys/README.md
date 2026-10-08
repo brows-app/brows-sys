@@ -10,16 +10,15 @@ window-hook implementation.
 dotnet add package Brows.Sys
 ```
 
-Use this package when consuming typed messages or implementing a messenger.
+Use this package when consuming typed messages.
 For the supplied Windows implementation, use `Brows.Sys.Win32.Windows`, which
 references these contracts transitively.
 
-## Contracts
+## Public contracts
 
 | Type | Purpose |
 | --- | --- |
 | `ISystemMessage` / `SystemMessage` | Identify a message's `SystemMessageKind`; `SystemMessage` is the base record. |
-| `ISystemMessenger` | Raises `SystemMessaged` and implements `IDisposable`. |
 | `SystemMessageEventArgs` | Carries an `ISystemMessage` in its `Message` property. |
 | `DeviceMessage` / `DeviceChange` | Carry a device and identify its change kind. |
 | `VolumeDevice` | Identifies a logical drive and its media/network flags. |
@@ -31,6 +30,10 @@ Contracts are in `Brows.Sys`. Device models are under
 `Brows.Sys.Messages` and `Brows.Sys.Messages.DeviceMessages`. Concrete
 change records are in `Brows.Sys.Messages.DeviceMessages.DeviceChanges`;
 the volume model is in `Brows.Sys.Messages.DeviceMessages.Devices`.
+
+`ISystemMessenger` is internal. Messenger implementations and creation are
+reserved for libraries in this repository. Applications consume notifications
+through the public `ISystemMessengerSet` in `Brows.Sys.Composition`.
 
 The current `SystemMessageKind` is `Device`. `DeviceMessageKind.TreeChange` identifies
 `DeviceTreeChange`, whose inherited `Device` is null because no individual device
@@ -117,9 +120,10 @@ the names supplied by the broadcast and are not restricted to COM-number syntax.
 
 ## Lifetime
 
-Dispose an `ISystemMessenger` when subscribing directly. When reading through
-`ISystemMessengerSet` from `Brows.Sys.Composition`, the enumerator owns the
-messengers it creates and cleans them up when reading ends.
+When reading through `ISystemMessengerSet` from `Brows.Sys.Composition`, the
+enumerator owns the internal messengers it creates and cleans them up when
+reading ends. Use `await foreach`, or dispose an explicitly obtained async
+enumerator, and cancel the reader when its window closes.
 
 ## License and source
 
