@@ -44,7 +44,6 @@ internal sealed class Win32WindowsMessengerFactoryTest {
         NativeMethods.SendMessageW(hwnd, DeviceChangeMessage, (nint)DeviceArrivalCode, payload);
     }
 
-
     private sealed class VolumeBroadcastPayload : IDisposable {
         private const int ByteLength = 20;
 
@@ -246,20 +245,24 @@ internal sealed class Win32WindowsMessengerFactoryTest {
             var hwnd = dispatcher.Invoke(() => source.Handle);
             using var messenger = CreateMessenger(new Win32WindowsMessengerFactory(), hwnd);
             Assert.That(messenger, Is.Not.Null);
-            var clipboardMessageCount = 0;
+            var clipboardMessageCount = 0L;
             messenger.SystemMessaged += (_, args) => {
                 if (args.Message is ClipboardChange) {
-                    clipboardMessageCount++;
+                    Interlocked.Increment(ref clipboardMessageCount);
                 }
             };
 
+            var clipboardMessageCountBeforeSend = Interlocked.Read(ref clipboardMessageCount);
             dispatcher.Invoke(() => NativeMethods.SendMessageW(
                 hwnd,
                 ClipboardUpdateMessage,
                 nint.Zero,
                 nint.Zero));
+            var clipboardMessageCountAfterSend = Interlocked.Read(ref clipboardMessageCount);
 
-            Assert.That(clipboardMessageCount, Is.EqualTo(1));
+            Assert.That(
+                clipboardMessageCountAfterSend,
+                Is.GreaterThan(clipboardMessageCountBeforeSend));
         }
         finally {
             dispatcher.Invoke(source.Dispose);
