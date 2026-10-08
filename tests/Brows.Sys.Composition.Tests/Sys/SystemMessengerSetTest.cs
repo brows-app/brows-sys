@@ -43,7 +43,7 @@ internal sealed class SystemMessengerSetTest {
         var messengerSet = CreateMessengerSet(
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => pendingFactory.Task));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
         var lateMessenger = new RecordingMessenger();
         var enumeratorCleanupStarted = false;
 
@@ -75,7 +75,7 @@ internal sealed class SystemMessengerSetTest {
     public async Task EnumeratorDisposalUnsubscribesAndDisposesMessenger() {
         var messenger = new RecordingMessenger();
         var messengerSet = CreateMessengerSet(new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
         var moveNext = enumerator.MoveNextAsync().AsTask();
         await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
@@ -99,7 +99,7 @@ internal sealed class SystemMessengerSetTest {
         var messengerSet = CreateMessengerSet(
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => pendingFactory.Task));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
         var moveNext = enumerator.MoveNextAsync().AsTask();
         var message = new TestMessage(2);
         var lateMessenger = new RecordingMessenger();
@@ -138,7 +138,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => pendingFactory.Task));
         using var cancellation = new CancellationTokenSource();
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), cancellation.Token).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), cancellation.Token).GetAsyncEnumerator();
         var firstMove = enumerator.MoveNextAsync().AsTask();
         var messages = new[] { new TestMessage(1), new TestMessage(2), new TestMessage(3) };
 
@@ -170,7 +170,7 @@ internal sealed class SystemMessengerSetTest {
         var messengerSet = CreateMessengerSet(
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(throwingMessenger)),
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(otherMessenger)));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
         var moveNext = enumerator.MoveNextAsync().AsTask();
 
         await throwingMessenger.Subscribed.Task.WaitAsync(WaitTimeout);
@@ -198,7 +198,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => Task.FromException<ISystemMessenger>(
                 new InvalidOperationException("Factory failed."))));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
@@ -220,7 +220,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => pendingFactory.Task),
             new DelegateFactory(() => Task.FromException<ISystemMessenger>(
                 new InvalidOperationException("Factory failed."))));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
@@ -248,7 +248,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => pendingFactory.Task),
             new DelegateFactory(() => canceledTask));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
         await Assert.CatchAsync<OperationCanceledException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
@@ -272,7 +272,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => pendingFactory.Task),
             new DelegateFactory(() => throw new InvalidOperationException("Synchronous failure.")));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
@@ -294,7 +294,7 @@ internal sealed class SystemMessengerSetTest {
         var messengerSet = CreateMessengerSet(
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)),
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
         var moveNext = enumerator.MoveNextAsync().AsTask();
 
         await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
@@ -311,7 +311,7 @@ internal sealed class SystemMessengerSetTest {
         var messenger = new RecordingMessenger();
         var messengerSet = CreateMessengerSet(
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)));
-        var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
         var moveNext = enumerator.MoveNextAsync().AsTask();
 
         await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
@@ -338,7 +338,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)));
         using var cancellation = new CancellationTokenSource();
         var enumerator = messengerSet
-            .ReadAllSystemMessages(new object(), CancellationToken.None)
+            .ReadSystemMessages(new object(), CancellationToken.None)
             .GetAsyncEnumerator(cancellation.Token);
         var moveNext = enumerator.MoveNextAsync().AsTask();
 

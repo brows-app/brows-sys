@@ -17,7 +17,7 @@ A platform adapter supplies the actual notifications. For WPF on Windows, add
 
 `ISystemMessengerSet` is in `Brows.Sys` and inherits `Brows.Composition.IExport`.
 
-- `ISystemMessengerSet.ReadAllSystemMessages(object window,
+- `ISystemMessengerSet.ReadSystemMessages(object window,
   CancellationToken cancellationToken)` returns an
   `IAsyncEnumerable<ISystemMessage>` that combines factory outputs.
 
@@ -60,7 +60,7 @@ static async Task ReadDevicesAsync(
     object window,
     CancellationToken cancellationToken) {
     try {
-        await foreach (var message in messengerSet.ReadAllSystemMessages(window, cancellationToken)) {
+        await foreach (var message in messengerSet.ReadSystemMessages(window, cancellationToken)) {
             if (message is DeviceChange { Device: VolumeDevice volume } change) {
                 Console.WriteLine($"{change.DeviceChangeKind}: {volume.VolumeName}");
             }

@@ -161,7 +161,7 @@ internal sealed class EventLogControllerTest {
             Messages.Writer.TryComplete(exception);
         }
 
-        public IAsyncEnumerable<ISystemMessage> ReadAllSystemMessages(
+        public IAsyncEnumerable<ISystemMessage> ReadSystemMessages(
             object window, CancellationToken cancellationToken) {
             ReadCount++;
             return Read(cancellationToken);

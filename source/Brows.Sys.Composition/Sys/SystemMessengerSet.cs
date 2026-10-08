@@ -128,7 +128,7 @@ internal sealed class SystemMessengerSet : ISystemMessengerSet {
     internal IReadOnlyList<ISystemMessengerFactory> Factories { get; set; }
 
     public IAsyncEnumerable<ISystemMessage>
-    ReadAllSystemMessages(object window, CancellationToken cancellationToken) {
+    ReadSystemMessages(object window, CancellationToken cancellationToken) {
         return new SystemMessengerSetMessages(this, window, cancellationToken);
     }
 

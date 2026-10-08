@@ -40,5 +40,5 @@ public interface ISystemMessengerSet : IExport {
     /// One or more foreground cleanup operations fail and no factory or cancellation exception
     /// is already being reported.
     /// </exception>
-    IAsyncEnumerable<ISystemMessage> ReadAllSystemMessages(object window, CancellationToken cancellationToken);
+    IAsyncEnumerable<ISystemMessage> ReadSystemMessages(object window, CancellationToken cancellationToken);
 }

@@ -56,7 +56,7 @@ static async Task WatchDevicesAsync(
     Window window,
     CancellationToken cancellationToken) {
     try {
-        await foreach (var message in messengerSet.ReadAllSystemMessages(window, cancellationToken)) {
+        await foreach (var message in messengerSet.ReadSystemMessages(window, cancellationToken)) {
             if (message is DeviceChange { Device: VolumeDevice volume } change) {
                 Console.WriteLine($"{change.DeviceChangeKind}: {volume.VolumeName} ({volume.VolumeFlag})");
             }

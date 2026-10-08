@@ -21,7 +21,7 @@ internal sealed class EventLogController {
     private async Task ReadAsync() {
         var cancellationToken = CancellationSource.Token;
         try {
-            await foreach (var message in MessengerSet.ReadAllSystemMessages(Window, cancellationToken)
+            await foreach (var message in MessengerSet.ReadSystemMessages(Window, cancellationToken)
                 .ConfigureAwait(false)) {
                 var timestamp = DateTimeOffset.Now;
                 await Dispatcher.InvokeAsync(() => Log.Append(message, timestamp),
