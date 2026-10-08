@@ -1,4 +1,4 @@
-﻿using Brows.Sys.Messages;
+﻿using Brows.Sys.Messages.ClipboardMessages;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;

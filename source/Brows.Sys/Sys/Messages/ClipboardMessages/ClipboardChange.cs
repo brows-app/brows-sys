@@ -1,4 +1,4 @@
-﻿namespace Brows.Sys.Messages;
+﻿namespace Brows.Sys.Messages.ClipboardMessages;
 
 /// <summary>
 /// Signals that the system clipboard changed.
@@ -12,7 +12,7 @@
 /// when the sequence number advances. Queued notifications can observe the same value, and the 32-bit value can
 /// wrap rather than grow without bound.
 /// </remarks>
-public sealed record ClipboardChange : SystemMessage {
+public sealed record ClipboardChange : ClipboardMessage {
     /// <summary>
     /// Gets the clipboard sequence number observed while processing this notification.
     /// </summary>
@@ -20,9 +20,4 @@ public sealed record ClipboardChange : SystemMessage {
     /// The sequence number, or zero when it is unavailable.
     /// </value>
     public uint SequenceNumber { get; init; }
-
-    /// <summary>
-    /// Gets the clipboard notification category.
-    /// </summary>
-    public sealed override SystemMessageKind SystemMessageKind => SystemMessageKind.Clipboard;
 }

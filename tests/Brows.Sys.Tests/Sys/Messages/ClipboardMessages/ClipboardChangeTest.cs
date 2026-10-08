@@ -1,4 +1,4 @@
-﻿namespace Brows.Sys.Messages;
+﻿namespace Brows.Sys.Messages.ClipboardMessages;
 
 [TestFixture]
 internal sealed class ClipboardChangeTest {
@@ -20,11 +20,11 @@ internal sealed class ClipboardChangeTest {
         var nonzeroSequence = new ClipboardChange { SequenceNumber = 1 };
         var maximumSequence = new ClipboardChange { SequenceNumber = uint.MaxValue };
 
-        Assert.Multiple(() => {
+        using (Assert.EnterMultipleScope()) {
             Assert.That(zeroSequence.SequenceNumber, Is.Zero);
             Assert.That(nonzeroSequence.SequenceNumber, Is.EqualTo(1));
             Assert.That(maximumSequence.SequenceNumber, Is.EqualTo(uint.MaxValue));
-        });
+        }
     }
 
     [Test]

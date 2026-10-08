@@ -1,4 +1,4 @@
-﻿using Brows.Sys.Messages;
+﻿using Brows.Sys.Messages.ClipboardMessages;
 using Brows.Win32;
 using Brows.Win32.PlatformInvoke;
 using System;
