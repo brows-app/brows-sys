@@ -1,6 +1,4 @@
-﻿using Brows.Sys.Messages.DeviceMessages;
-
-namespace Brows.Sys.Tests;
+﻿namespace Brows.Sys.Messages.DeviceMessages;
 
 [TestFixture]
 internal sealed class DeviceKindTest {

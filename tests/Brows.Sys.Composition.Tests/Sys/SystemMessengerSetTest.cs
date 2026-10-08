@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Brows.Sys;
 
-namespace Brows.Sys.Composition.Tests;
+namespace Brows.Sys;
 
 [TestFixture]
 internal sealed class SystemMessengerSetTest {

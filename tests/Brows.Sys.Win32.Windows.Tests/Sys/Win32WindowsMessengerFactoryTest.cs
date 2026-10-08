@@ -8,7 +8,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
-namespace Brows.Sys.Win32.Windows.Tests;
+namespace Brows.Sys;
 
 [TestFixture]
 internal sealed class Win32WindowsMessengerFactoryTest {

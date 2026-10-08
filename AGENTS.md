@@ -99,6 +99,9 @@ those adapters on Windows.
 - Put each top-level type in a separate file named after the type. Keep closely
   related helper types nested with their owning type when that matches the
   existing design.
+- Namespaces must match the directory structure. The namespace of a type is the
+  project's root namespace combined with the folders that contain the type's
+  file, relative to the project root.
 - Update public API documentation, relevant READMEs, and usage examples when
   changing the documented contract. Do not add XML documentation comments to
   private or internal types or members.
@@ -292,9 +295,13 @@ example, a source project called `My.Foo.Bar` would have a corresponding test pr
 called `My.Foo.Bar.Tests`.
 
 The test fixtures within each test project are named according to the type that
-the test fixture tests. The name of the text-fixture class is equal to the name
+the test fixture tests. The name of the test-fixture class is equal to the name
 of the tested type, plus `Test`. For example, a test fixture named `MyFooBarTest`
 has tests for the type `MyFooBar`.
+
+A test-fixture class is placed in the folder that mirrors the folder of the
+tested type within its source project, and the namespace of a test-fixture
+class is the same as the namespace of the type it tests.
  
  Follow the existing NUnit and Moq style when writing tests.
 

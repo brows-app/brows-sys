@@ -1,7 +1,4 @@
-﻿using Brows.Sys.Messages.DeviceMessages;
-using Brows.Sys.Messages.DeviceMessages.Devices;
-
-namespace Brows.Sys.Tests;
+﻿namespace Brows.Sys.Messages.DeviceMessages.Devices;
 
 [TestFixture]
 internal sealed class PortDeviceTest {

@@ -1,4 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../source/Brows.Sys/Brows.Sys.csproj" />
   </ItemGroup>
