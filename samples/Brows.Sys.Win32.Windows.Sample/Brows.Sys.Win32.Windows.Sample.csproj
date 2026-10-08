@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFrameworks>net10.0-windows</TargetFrameworks>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="Win32WindowsSampleApp.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\source\Brows.Sys.Win32.Windows\Brows.Sys.Win32.Windows.csproj" />
+  </ItemGroup>
+</Project>

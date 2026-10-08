@@ -1,0 +1,41 @@
+﻿<Solution>
+  <Folder Name="/.github/" />
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/workflow.yml" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Brows.Sys.Win32.Windows.Sample/Brows.Sys.Win32.Windows.Sample.csproj" Id="a5edad8d-eef9-45b0-9d27-01cb302794cb" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Brows.Sys.Win32.Windows.Sample.Tests/Brows.Sys.Win32.Windows.Sample.Tests.csproj" />
+    <Project Path="tests/Brows.Sys.Composition.Tests/Brows.Sys.Composition.Tests.csproj" Id="ce21d9a9-54f1-4070-8b63-8feb0a44fb05" />
+    <Project Path="tests/Brows.Sys.Tests/Brows.Sys.Tests.csproj" Id="31bfdd38-ff83-45d7-8401-4349f0273c30" />
+    <Project Path="tests/Brows.Sys.Win32.Tests/Brows.Sys.Win32.Tests.csproj" Id="97d49896-ab26-41b8-8a07-80ad0c8ca1fd" />
+    <Project Path="tests/Brows.Sys.Win32.Windows.Tests/Brows.Sys.Win32.Windows.Tests.csproj" Id="88cd414a-008a-44f2-8566-d75cefe2827f" />
+  </Folder>
+  <Folder Name="/_/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="AGENTS.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="spelling.exclusion.dic" />
+  </Folder>
+  <Folder Name="/_/samples/">
+    <File Path="samples/Directory.Build.props" />
+  </Folder>
+  <Folder Name="/_/source/">
+    <File Path="source/Directory.Build.props" />
+  </Folder>
+  <Folder Name="/_/tests/">
+    <File Path="tests/Directory.Build.props" />
+  </Folder>
+  <Project Path="source/Brows.Sys.Composition/Brows.Sys.Composition.csproj" Id="10c3fa75-a90a-447a-b1e9-8dcde9b5d798" />
+  <Project Path="source/Brows.Sys.Win32.Windows/Brows.Sys.Win32.Windows.csproj" Id="5648d6fd-e8e5-4f9d-a1e4-806aa709e6a1" />
+  <Project Path="source/Brows.Sys.Win32/Brows.Sys.Win32.csproj" Id="86bdcb68-a3b9-4dab-8e78-b7223e4b4a24" />
+  <Project Path="source/Brows.Sys/Brows.Sys.csproj" Id="11cc873d-a514-45ca-a92e-b299a282a547" />
+</Solution>

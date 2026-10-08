@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-windows</TargetFrameworks>
+    <UseWpf>true</UseWpf>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\samples\Brows.Sys.Win32.Windows.Sample\Brows.Sys.Win32.Windows.Sample.csproj" />
+  </ItemGroup>
+</Project>
