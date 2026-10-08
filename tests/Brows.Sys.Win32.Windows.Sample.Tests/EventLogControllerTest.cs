@@ -153,6 +153,7 @@ internal sealed class EventLogControllerTest {
             await dispatcher.Invoke(controller.StopAsync).WaitAsync(Timeout);
         }
     }
+
     private sealed class ControlledMessengerSet : ISystemMessengerSet {
         private readonly Channel<ISystemMessage> Messages = Channel.CreateUnbounded<ISystemMessage>();
 

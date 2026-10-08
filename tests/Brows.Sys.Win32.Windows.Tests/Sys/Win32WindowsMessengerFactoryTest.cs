@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Threading;
 
 namespace Brows.Sys;
 
@@ -16,14 +15,6 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     private const uint ClipboardUpdateMessage = 0x031D;
     private const uint DeviceChangeMessage = 0x0219;
     private const uint DeviceArrivalCode = 0x8000;
-
-    private static HwndSource CreateSource() {
-        return new HwndSource(new HwndSourceParameters("Win32WindowsMessengerFactoryTest") {
-            Width = 1,
-            Height = 1,
-            WindowStyle = 0,
-        });
-    }
 
     private static Window CreateWindow() {
         return new Window {
@@ -53,49 +44,6 @@ internal sealed class Win32WindowsMessengerFactoryTest {
         NativeMethods.SendMessageW(hwnd, DeviceChangeMessage, (nint)DeviceArrivalCode, payload);
     }
 
-    private sealed class DispatcherThread : IDisposable {
-        private readonly TaskCompletionSource<Dispatcher> DispatcherCompletion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        private readonly Thread Thread;
-        private readonly Dispatcher Dispatcher;
-
-        private void RunDispatcher() {
-            DispatcherCompletion.TrySetResult(Dispatcher.CurrentDispatcher);
-            Dispatcher.Run();
-        }
-
-        public DispatcherThread() {
-            Thread = new Thread(RunDispatcher);
-            Thread.SetApartmentState(ApartmentState.STA);
-            Thread.Start();
-            Dispatcher = DispatcherCompletion.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
-        }
-
-        public T Invoke<T>(Func<T> callback) {
-            return Dispatcher.Invoke(
-                callback,
-                DispatcherPriority.Send,
-                CancellationToken.None,
-                TimeSpan.FromSeconds(10));
-        }
-
-        public void Invoke(Action callback) {
-            Dispatcher.Invoke(
-                callback,
-                DispatcherPriority.Send,
-                CancellationToken.None,
-                TimeSpan.FromSeconds(10));
-        }
-
-        public void Dispose() {
-            Dispatcher.BeginInvokeShutdown(DispatcherPriority.Send);
-            var dispatcherThreadStopped = Thread.Join(TimeSpan.FromSeconds(10));
-            if (!dispatcherThreadStopped) {
-                throw new TimeoutException("The WPF test dispatcher did not stop.");
-            }
-        }
-    }
 
     private sealed class VolumeBroadcastPayload : IDisposable {
         private const int ByteLength = 20;
@@ -245,7 +193,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void ClipboardUpdateMessagePublishesEverySequenceValueWithoutReadingParameters() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var api = new RecordingClipboardNativeApi(sequenceNumbers: [0u, 17u, 17u, uint.MaxValue]);
         using var messenger = CreateMessenger(CreateFactory(new RecordingRegistrar(), api), hwnd);
@@ -291,9 +239,37 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     }
 
     [Test]
+    public void ProductionSharedDefaultFactory_RegistersAndPublishesClipboardUpdates() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        try {
+            var hwnd = dispatcher.Invoke(() => source.Handle);
+            using var messenger = CreateMessenger(new Win32WindowsMessengerFactory(), hwnd);
+            Assert.That(messenger, Is.Not.Null);
+            var clipboardMessageCount = 0;
+            messenger.SystemMessaged += (_, args) => {
+                if (args.Message is ClipboardChange) {
+                    clipboardMessageCount++;
+                }
+            };
+
+            dispatcher.Invoke(() => NativeMethods.SendMessageW(
+                hwnd,
+                ClipboardUpdateMessage,
+                nint.Zero,
+                nint.Zero));
+
+            Assert.That(clipboardMessageCount, Is.EqualTo(1));
+        }
+        finally {
+            dispatcher.Invoke(source.Dispose);
+        }
+    }
+
+    [Test]
     public void FactoriesSharingSourceKeepClipboardRegistrationUntilLastMessengerIsDisposed() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var api = new RecordingClipboardNativeApi(sequenceNumbers: [11u, 12u, 13u]);
         var registry = new ClipboardListenerRegistry(api);
@@ -344,7 +320,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void ClipboardRegistrationFailureRollsBackAllDeviceRegistrationsAndPreservesNativeError() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar(throwOnRelease: true);
         var api = new RecordingClipboardNativeApi(addErrorCode: 1234);
@@ -366,7 +342,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void CancellationAfterClipboardAcquisitionReleasesAllRegistrations() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         using var cancellation = new CancellationTokenSource();
         var registrar = new RecordingRegistrar();
@@ -389,7 +365,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void SourceClosureDuringClipboardAcquisitionReturnsNullAndReleasesDeviceRegistrations() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar();
         var api = new RecordingClipboardNativeApi(added: source.Dispose);
@@ -407,7 +383,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void FactoryCreatedAfterRegistryOwnerClosureReturnsNullAndReleasesNewRegistrations() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
@@ -438,7 +414,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void CleanupAttemptsClipboardAndEveryDeviceReleaseWhenRemovalFails() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar(throwOnRelease: true);
         var api = new RecordingClipboardNativeApi(throwOnRemove: true);
@@ -477,7 +453,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
         try {
             Assert.That(HwndSource.FromHwnd(hwnd), Is.Null);
 
-            var factory = new Win32WindowsMessengerFactory();
+            var factory = CreateFactory(new RecordingRegistrar(), new RecordingClipboardNativeApi());
             var messenger = ((ISystemMessengerFactory)factory)
                 .CreateSystemMessenger(hwnd, CancellationToken.None)
                 .WaitAsync(TimeSpan.FromSeconds(10))
@@ -494,9 +470,9 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void Dispose_RemovesHookWithoutDisposingSource_WhenCalledFromAnotherThread() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
-        var factory = new Win32WindowsMessengerFactory();
+        var factory = CreateFactory(new RecordingRegistrar(), new RecordingClipboardNativeApi());
         using var messenger = dispatcher.Invoke(() => CreateMessenger(factory, hwnd));
         Assert.That(messenger, Is.Not.Null);
 
@@ -530,9 +506,9 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void CreateSystemMessenger_FromWorkerThread_AttachesHookOnOwnerDispatcher() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
-        var factory = new Win32WindowsMessengerFactory();
+        var factory = CreateFactory(new RecordingRegistrar(), new RecordingClipboardNativeApi());
         using var messenger = Task.Run(() => CreateMessenger(factory, hwnd))
             .WaitAsync(TimeSpan.FromSeconds(10))
             .GetAwaiter()
@@ -574,7 +550,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
         });
         var expectedHandle = dispatcher.Invoke(() => new WindowInteropHelper(window).Handle);
         Assert.That(expectedHandle, Is.Not.EqualTo(0));
-        var factory = new Win32WindowsMessengerFactory();
+        var factory = CreateFactory(new RecordingRegistrar(), new RecordingClipboardNativeApi());
         using var messenger = Task.Run(() => ((ISystemMessengerFactory)factory)
             .CreateSystemMessenger(window, CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(10))
@@ -613,7 +589,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void Dispose_DoesNotThrow_WhenOwnerHasAlreadyClosedSource() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar();
         var api = new RecordingClipboardNativeApi();
@@ -635,10 +611,10 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void RegistersExactExplorerProfileAndReleasesOnOwnerClosure() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar();
-        using var messenger = CreateMessenger(new Win32WindowsMessengerFactory(registrar), hwnd);
+        using var messenger = CreateMessenger(CreateFactory(registrar, new RecordingClipboardNativeApi()), hwnd);
         Assert.That(registrar.Classes, Is.EqualTo(new[] {
             new Guid("53F56307-B6BF-11D0-94F2-00A0C91EFB8B"),
             new Guid("53F5630D-B6BF-11D0-94F2-00A0C91EFB8B"),
@@ -653,12 +629,12 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void RegistrationFailureRollsBackAllResourcesAndPreservesNativeError() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         try {
             var registrar = new RecordingRegistrar(failAt: 3, throwOnRelease: true);
             var error = Assert.Throws<Win32Exception>(() =>
-                CreateMessenger(new Win32WindowsMessengerFactory(registrar), hwnd));
+                CreateMessenger(CreateFactory(registrar, new RecordingClipboardNativeApi()), hwnd));
             Assert.That(error.NativeErrorCode, Is.EqualTo(5));
             Assert.That(registrar.ReleaseCount, Is.EqualTo(2));
             Assert.That(dispatcher.Invoke(() => source.IsDisposed), Is.False);
@@ -671,12 +647,12 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void CancellationDuringRegistrationRollsBackWithoutDestroyingSource() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         using var cancellation = new CancellationTokenSource();
         try {
             var registrar = new RecordingRegistrar(registered: cancellation.Cancel);
-            ISystemMessengerFactory factory = new Win32WindowsMessengerFactory(registrar);
+            ISystemMessengerFactory factory = CreateFactory(registrar, new RecordingClipboardNativeApi());
             Assert.Catch<OperationCanceledException>(() =>
                 factory.CreateSystemMessenger(hwnd, cancellation.Token).GetAwaiter().GetResult());
             Assert.That(registrar.ReleaseCount, Is.EqualTo(1));
@@ -690,10 +666,10 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void ExplicitDisposalAttemptsEveryReleaseAndIsIdempotent() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar(throwOnRelease: true);
-        var messenger = CreateMessenger(new Win32WindowsMessengerFactory(registrar), hwnd);
+        var messenger = CreateMessenger(CreateFactory(registrar, new RecordingClipboardNativeApi()), hwnd);
         try {
             var error = Assert.Throws<AggregateException>(messenger.Dispose);
             Assert.That(error.InnerExceptions, Has.Count.EqualTo(3));
@@ -708,8 +684,8 @@ internal sealed class Win32WindowsMessengerFactoryTest {
 
     [Test]
     public void DispatcherShutdownReleasesLiveRegistrations() {
-        var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar();
         var api = new RecordingClipboardNativeApi();
@@ -724,10 +700,10 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public void OwnerClosureDuringInitializationStopsAndReleasesNewRegistration() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
         var hwnd = dispatcher.Invoke(() => source.Handle);
         var registrar = new RecordingRegistrar(registered: source.Dispose);
-        var messenger = CreateMessenger(new Win32WindowsMessengerFactory(registrar), hwnd);
+        var messenger = CreateMessenger(CreateFactory(registrar, new RecordingClipboardNativeApi()), hwnd);
         Assert.That(messenger, Is.Null);
         Assert.That(registrar.Classes, Has.Count.EqualTo(1));
         Assert.That(registrar.ReleaseCount, Is.EqualTo(1));
@@ -736,7 +712,7 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     [Test]
     public async Task UnsupportedWindowAndPreCanceledCreationDoNotRegister() {
         var registrar = new RecordingRegistrar();
-        ISystemMessengerFactory factory = new Win32WindowsMessengerFactory(registrar);
+        ISystemMessengerFactory factory = CreateFactory(registrar, new RecordingClipboardNativeApi());
         Assert.That(factory.CreateSystemMessenger((nint)0, CancellationToken.None).GetAwaiter().GetResult(), Is.Null);
         await Assert.CatchAsync<OperationCanceledException>(async () => {
             await factory.CreateSystemMessenger((nint)0, new CancellationToken(true));

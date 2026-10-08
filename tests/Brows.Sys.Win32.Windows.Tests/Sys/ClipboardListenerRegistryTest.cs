@@ -3,74 +3,11 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Interop;
-using System.Windows.Threading;
 
 namespace Brows.Sys;
 
 [TestFixture]
 internal sealed class ClipboardListenerRegistryTest {
-    private static HwndSource CreateSource() {
-        return new HwndSource(new HwndSourceParameters("ClipboardListenerRegistryTest") {
-            Width = 1,
-            Height = 1,
-            WindowStyle = 0,
-        });
-    }
-
-    private sealed class DispatcherThread : IDisposable {
-        private readonly TaskCompletionSource<Dispatcher> DispatcherCompletion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        private readonly Thread Thread;
-
-        private void RunDispatcher() {
-            DispatcherCompletion.TrySetResult(Dispatcher.CurrentDispatcher);
-            Dispatcher.Run();
-        }
-
-        internal Dispatcher Dispatcher { get; }
-
-        internal int ThreadId => Dispatcher.Invoke(() => Environment.CurrentManagedThreadId);
-
-        internal DispatcherThread() {
-            Thread = new Thread(RunDispatcher);
-            Thread.SetApartmentState(ApartmentState.STA);
-            Thread.Start();
-            Dispatcher = DispatcherCompletion.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
-        }
-
-        internal T Invoke<T>(Func<T> callback) {
-            return Dispatcher.Invoke(
-                callback,
-                DispatcherPriority.Send,
-                CancellationToken.None,
-                TimeSpan.FromSeconds(10));
-        }
-
-        internal void Invoke(Action callback) {
-            Dispatcher.Invoke(
-                callback,
-                DispatcherPriority.Send,
-                CancellationToken.None,
-                TimeSpan.FromSeconds(10));
-        }
-
-        internal void BeginShutdown() {
-            Dispatcher.BeginInvokeShutdown(DispatcherPriority.Send);
-        }
-
-        public void Dispose() {
-            if (!Dispatcher.HasShutdownStarted) {
-                BeginShutdown();
-            }
-            var dispatcherThreadStopped = Thread.Join(TimeSpan.FromSeconds(10));
-            if (!dispatcherThreadStopped) {
-                throw new TimeoutException("The clipboard test dispatcher did not stop.");
-            }
-        }
-    }
-
     private sealed class RecordingClipboardNativeApi : IClipboardNativeApi {
         private int Adds;
         private int Removes;
@@ -141,7 +78,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void AcquireAndRelease_ReferenceCountsOneSourceAndIsIdempotent() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         try {
@@ -165,8 +102,9 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void Acquire_UsesIndependentRegistrationsForDifferentSources() {
         using var dispatcher = new DispatcherThread();
-        var firstSource = dispatcher.Invoke(CreateSource);
-        var secondSource = dispatcher.Invoke(CreateSource);
+        var firstSource = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
+        var secondSource = dispatcher.Invoke(() =>
+            DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         try {
@@ -188,7 +126,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void AcquireAfterLastRelease_RegistersAgain() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         try {
@@ -209,7 +147,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void Acquire_WhenNativeAddFails_PreservesErrorAndLeavesNoRegistration() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi {
             AddFailureCode = 5,
         };
@@ -234,7 +172,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void Release_WhenNativeRemoveFailsOnLiveWindow_PreservesErrorAndCanBeRetriedByNextLease() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         try {
@@ -258,7 +196,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void SourceClosure_InvalidatesOutstandingLeaseAndBlocksLaterDisposedHandlers() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         var lease = dispatcher.Invoke(() => registry.Acquire(source));
@@ -280,11 +218,10 @@ internal sealed class ClipboardListenerRegistryTest {
         Assert.DoesNotThrow(lease.Dispose);
     }
 
-
     [Test]
     public void LastLeaseReleaseDuringEarlierDisposedHandler_KeepsTombstoneForLaterHandlers() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         IDisposable lease = null;
@@ -306,10 +243,11 @@ internal sealed class ClipboardListenerRegistryTest {
         Assert.That(api.AddCount, Is.EqualTo(1));
         Assert.That(api.RemoveCount, Is.EqualTo(1));
     }
+
     [Test]
     public void AcquireAndRelease_FromWorkerThreadUseSourceDispatcher() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         try {
@@ -330,8 +268,8 @@ internal sealed class ClipboardListenerRegistryTest {
 
     [Test]
     public void DispatcherShutdown_RacingWithLastLeaseReleaseRemovesOnce() {
-        var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         var lease = dispatcher.Invoke(() => registry.Acquire(source));
@@ -344,6 +282,7 @@ internal sealed class ClipboardListenerRegistryTest {
         Assert.That(api.RemoveCount, Is.EqualTo(1));
         Assert.DoesNotThrow(lease.Dispose);
     }
+
 
     [Test]
     public void GetSequenceNumber_ReturnsInjectedValues() {
@@ -358,7 +297,7 @@ internal sealed class ClipboardListenerRegistryTest {
     [Test]
     public void Acquire_WhenAddClosesSourceDuringInitialization_DoesNotReturnLease() {
         using var dispatcher = new DispatcherThread();
-        var source = dispatcher.Invoke(CreateSource);
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
         var api = new RecordingClipboardNativeApi();
         var registry = new ClipboardListenerRegistry(api);
         api.AddAction = _ => {
