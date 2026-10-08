@@ -40,7 +40,7 @@ internal sealed class ClipboardListenerRegistry {
         }
     }
 
-    private IDisposable AcquireOnDispatcher(HwndSource source) {
+    private IClipboardListenerLease AcquireOnDispatcher(HwndSource source) {
         var dispatcher = source.Dispatcher;
         var sourceCannotBeAcquired = source.IsDisposed || DispatcherIsShuttingDown(dispatcher);
         if (sourceCannotBeAcquired) {
@@ -75,7 +75,7 @@ internal sealed class ClipboardListenerRegistry {
         Api = api ?? throw new ArgumentNullException(nameof(api));
     }
 
-    internal IDisposable Acquire(HwndSource source) {
+    internal IClipboardListenerLease Acquire(HwndSource source) {
         if (source is null) {
             throw new ArgumentNullException(nameof(source));
         }
@@ -107,6 +107,10 @@ internal sealed class ClipboardListenerRegistry {
         return Api.GetClipboardSequenceNumber();
     }
 
+    internal interface IClipboardListenerLease : IDisposable {
+        Exception DisposeForOwnerClosure(bool dispatcherIsClosing);
+    }
+
     private sealed class ListenerState {
         private readonly ClipboardListenerRegistry Registry;
         private readonly IClipboardNativeApi Api;
@@ -121,11 +125,9 @@ internal sealed class ClipboardListenerRegistry {
         private bool HasDisposedHandler;
         private bool HasShutdownHandler;
         private bool HasHook;
+        private bool OwnerCleanupStarted;
+        private readonly List<Exception> DeferredCleanupErrors = [];
         private OwnerState State;
-
-        private static bool IsDispatcherUnavailable(Dispatcher dispatcher) {
-            return dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished;
-        }
 
         private bool SourceIsUnavailable(out HwndSource source) {
             var sourceIsReachable = Source.TryGetTarget(out source);
@@ -185,12 +187,17 @@ internal sealed class ClipboardListenerRegistry {
             }
         }
 
-        private void EndOwner(OwnerState finalState,
-                              bool removeRegisteredListener,
-                              bool removeStateImmediately,
-                              bool removeHook) {
+        private Exception EndOwner(OwnerState finalState,
+                                   bool removeRegisteredListener,
+                                   bool removeStateImmediately,
+                                   bool removeHook,
+                                   bool scheduleStateRemoval) {
             bool shouldRemove;
             lock (Locker) {
+                if (OwnerCleanupStarted) {
+                    return null;
+                }
+                OwnerCleanupStarted = true;
                 var ownerHasActiveRegistration = removeRegisteredListener && State == OwnerState.Active && IsRegistered;
                 shouldRemove = ownerHasActiveRegistration;
                 if (State == OwnerState.Active) {
@@ -200,44 +207,70 @@ internal sealed class ClipboardListenerRegistry {
                 IsRegistered = false;
             }
 
-            Exception removalError = null;
+            var errors = new List<Exception>();
             if (shouldRemove) {
                 try {
                     RemoveListenerIfWindowIsLive();
                 }
                 catch (Exception exception) {
-                    removalError = exception;
+                    errors.Add(exception);
                 }
             }
 
-            Exception detachError = null;
             Source.TryGetTarget(out var source);
             var shouldRemoveHook = removeHook && source is not null && !source.IsDisposed;
             try {
                 Detach(source, shouldRemoveHook);
             }
             catch (Exception exception) {
-                detachError = exception;
+                errors.Add(exception);
             }
 
-            if (source is not null) {
-                if (removeStateImmediately) {
-                    Registry.RemoveState(source, this);
+            try {
+                if (source is not null) {
+                    if (removeStateImmediately) {
+                        Registry.RemoveState(source, this);
+                    }
+                    else if (scheduleStateRemoval) {
+                        ScheduleStateRemoval();
+                    }
                 }
-                else {
-                    ScheduleStateRemoval();
-                }
+            }
+            catch (Exception exception) {
+                errors.Add(exception);
             }
 
-            var cleanupHadMultipleErrors = removalError is not null && detachError is not null;
-            if (cleanupHadMultipleErrors) {
-                throw new AggregateException(removalError, detachError);
+            if (errors.Count == 0) {
+                return null;
             }
-            if (removalError is not null) {
-                throw removalError;
+            if (errors.Count == 1) {
+                return errors[0];
             }
-            if (detachError is not null) {
-                throw detachError;
+            return new AggregateException("Clipboard listener owner cleanup failed.", errors);
+        }
+
+        private void RecordDeferredCleanupError(Exception error) {
+            if (error is null) {
+                return;
+            }
+            lock (Locker) {
+                DeferredCleanupErrors.Add(error);
+            }
+        }
+
+        private Exception TakeDeferredCleanupError() {
+            lock (Locker) {
+                if (DeferredCleanupErrors.Count == 0) {
+                    return null;
+                }
+                if (DeferredCleanupErrors.Count == 1) {
+                    var error = DeferredCleanupErrors[0];
+                    DeferredCleanupErrors.Clear();
+                    return error;
+                }
+                var errors = DeferredCleanupErrors.ToArray();
+                DeferredCleanupErrors.Clear();
+                return new AggregateException("Clipboard listener owner cleanup failed.", errors);
             }
         }
 
@@ -245,7 +278,8 @@ internal sealed class ClipboardListenerRegistry {
             if (!Source.TryGetTarget(out var source)) {
                 return;
             }
-            var sourceAndDispatcherRemainActive = !source.IsDisposed && !IsDispatcherUnavailable(Dispatcher);
+            var dispatcherIsUnavailable = DispatcherIsShuttingDown(Dispatcher);
+            var sourceAndDispatcherRemainActive = !source.IsDisposed && !dispatcherIsUnavailable;
             if (sourceAndDispatcherRemainActive) {
                 return;
             }
@@ -260,20 +294,23 @@ internal sealed class ClipboardListenerRegistry {
             try {
                 Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(RemoveCompletedState));
             }
-            catch (InvalidOperationException) when (IsDispatcherUnavailable(Dispatcher)) {
+            catch (InvalidOperationException) when (DispatcherIsShuttingDown(Dispatcher)) {
                 RemoveCompletedState();
             }
         }
 
         private void OnSourceDisposed(object sender, EventArgs args) {
-            EndOwner(OwnerState.WindowClosing, removeRegisteredListener: true,
-                removeStateImmediately: false, removeHook: true);
+            var error = EndOwner(OwnerState.WindowClosing, removeRegisteredListener: true,
+                removeStateImmediately: false, removeHook: true, scheduleStateRemoval: true);
+            RecordDeferredCleanupError(error);
         }
 
         private void OnDispatcherShutdownStarted(object sender, EventArgs args) {
-            EndOwner(OwnerState.DispatcherShuttingDown, removeRegisteredListener: true,
-                removeStateImmediately: true, removeHook: true);
+            var error = EndOwner(OwnerState.DispatcherShuttingDown, removeRegisteredListener: true,
+                removeStateImmediately: false, removeHook: true, scheduleStateRemoval: false);
+            RecordDeferredCleanupError(error);
         }
+
         private nint OnSourceHook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled) {
             var messageDestroysThisWindow = hwnd == Hwnd && msg == WindowNonClientDestroyMessage;
             if (messageDestroysThisWindow) {
@@ -363,9 +400,11 @@ internal sealed class ClipboardListenerRegistry {
         }
 
         private void InvalidateAfterDispatcherShutdown() {
-            EndOwner(OwnerState.DispatcherShuttingDown, removeRegisteredListener: false,
-                removeStateImmediately: true, removeHook: false);
+            var error = EndOwner(OwnerState.DispatcherShuttingDown, removeRegisteredListener: false,
+                removeStateImmediately: true, removeHook: false, scheduleStateRemoval: false);
+            RecordDeferredCleanupError(error);
         }
+
         private void Release() {
             if (Dispatcher.CheckAccess()) {
                 ReleaseOnDispatcher();
@@ -386,12 +425,12 @@ internal sealed class ClipboardListenerRegistry {
                     CancellationToken.None,
                     DispatcherOperationTimeout);
             }
-            catch (TaskCanceledException) when (IsDispatcherUnavailable(Dispatcher)) {
+            catch (TaskCanceledException) when (DispatcherIsShuttingDown(Dispatcher)) {
                 if (Dispatcher.HasShutdownFinished) {
                     InvalidateAfterDispatcherShutdown();
                 }
             }
-            catch (InvalidOperationException) when (IsDispatcherUnavailable(Dispatcher)) {
+            catch (InvalidOperationException) when (DispatcherIsShuttingDown(Dispatcher)) {
                 if (Dispatcher.HasShutdownFinished) {
                     InvalidateAfterDispatcherShutdown();
                 }
@@ -448,7 +487,7 @@ internal sealed class ClipboardListenerRegistry {
             }
         }
 
-        internal IDisposable Acquire() {
+        internal IClipboardListenerLease Acquire() {
             lock (Locker) {
                 var ownerIsUnavailable = State != OwnerState.Active;
                 if (ownerIsUnavailable) {
@@ -474,7 +513,7 @@ internal sealed class ClipboardListenerRegistry {
             }
 
             var sourceIsUnavailable = SourceIsUnavailable(out var source);
-            var dispatcherIsShuttingDown = IsDispatcherUnavailable(Dispatcher);
+            var dispatcherIsShuttingDown = DispatcherIsShuttingDown(Dispatcher);
             bool shouldRemove;
             lock (Locker) {
                 IsAdding = false;
@@ -534,7 +573,7 @@ internal sealed class ClipboardListenerRegistry {
             throw new ObjectDisposedException(nameof(HwndSource));
         }
 
-        private sealed class Lease : IDisposable {
+        private sealed class Lease : IClipboardListenerLease {
             private readonly ListenerState State;
             private int Disposed;
 
@@ -546,7 +585,44 @@ internal sealed class ClipboardListenerRegistry {
                 if (Interlocked.Exchange(ref Disposed, 1) != 0) {
                     return;
                 }
-                State.Release();
+                var errors = new List<Exception>();
+                try {
+                    State.Release();
+                }
+                catch (Exception exception) {
+                    errors.Add(exception);
+                }
+                var deferredError = State.TakeDeferredCleanupError();
+                if (deferredError is not null) {
+                    errors.Add(deferredError);
+                }
+                if (errors.Count == 1) {
+                    throw errors[0];
+                }
+                if (errors.Count > 1) {
+                    throw new AggregateException("Clipboard listener release failed.", errors);
+                }
+            }
+
+            public Exception DisposeForOwnerClosure(bool dispatcherIsClosing) {
+                if (Interlocked.Exchange(ref Disposed, 1) != 0) {
+                    return null;
+                }
+                var finalState = dispatcherIsClosing
+                    ? OwnerState.DispatcherShuttingDown
+                    : OwnerState.WindowClosing;
+                var ownerCleanupError = State.EndOwner(finalState, removeRegisteredListener: true,
+                    removeStateImmediately: false, removeHook: true,
+                    scheduleStateRemoval: !dispatcherIsClosing);
+                var deferredCleanupError = State.TakeDeferredCleanupError();
+                if (ownerCleanupError is null) {
+                    return deferredCleanupError;
+                }
+                if (deferredCleanupError is null) {
+                    return ownerCleanupError;
+                }
+                return new AggregateException("Clipboard listener owner cleanup failed.",
+                    ownerCleanupError, deferredCleanupError);
             }
         }
 

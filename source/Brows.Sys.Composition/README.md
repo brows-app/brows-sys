@@ -89,11 +89,12 @@ identifier or a content snapshot. See the `Brows.Sys` documentation for its limi
   each unique messenger. Successfully created late results are also disposed.
   Disposal is safe while a read is still outstanding: the abandoned read
   completes with a cancellation error, the same cleanup runs, and repeated
-  disposal has no effect.
+  disposal has no effect after cleanup errors have been reported.
 - Factory failures propagate to the reader. Cleanup failures on ordinary
-  enumerator disposal are reported as an `AggregateException`; a factory or
-  cancellation failure remains the primary exception. Errors from disposal of
-  late results after enumeration ends are suppressed.
+  enumerator disposal, including errors retained from WPF owner-close events,
+  are reported as an `AggregateException`; a factory or cancellation failure
+  remains the primary exception. Errors from disposal of late results after
+  enumeration ends are suppressed.
 
 Use `await foreach`, or dispose an explicitly obtained async enumerator. Dispatch
 updates to the appropriate UI thread when consuming from a background context.

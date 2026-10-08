@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 
 namespace Brows.Sys;
 
@@ -148,6 +149,10 @@ internal sealed class Win32WindowsMessengerFactoryTest {
 
         internal bool ThrowOnRemove { get; set; }
 
+        internal ManualResetEventSlim RemoveStarted { get; set; }
+
+        internal ManualResetEventSlim ContinueRemove { get; set; }
+
         internal RecordingClipboardNativeApi(
             int addErrorCode = 0,
             bool throwOnRemove = false,
@@ -171,6 +176,14 @@ internal sealed class Win32WindowsMessengerFactoryTest {
 
         public void RemoveClipboardFormatListener(nint hwnd) {
             Interlocked.Increment(ref RemoveCountValue);
+            RemoveStarted?.Set();
+            var continueRemove = ContinueRemove;
+            if (continueRemove is not null) {
+                var removalCanContinue = continueRemove.Wait(TimeSpan.FromSeconds(10));
+                if (!removalCanContinue) {
+                    throw new TimeoutException("The injected clipboard removal did not continue.");
+                }
+            }
             if (ThrowOnRemove) {
                 throw new Win32Exception(6, "Clipboard cleanup failed.");
             }
@@ -433,6 +446,281 @@ internal sealed class Win32WindowsMessengerFactoryTest {
         finally {
             api.ThrowOnRemove = false;
             dispatcher.Invoke(source.Dispose);
+        }
+    }
+
+    [Test]
+    public void SourceClosure_WhenCleanupFails_StillNotifiesLaterSubscribersAndReportsOnce() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        var hwnd = dispatcher.Invoke(() => source.Handle);
+        var registrar = new RecordingRegistrar(throwOnRelease: true);
+        var api = new RecordingClipboardNativeApi(throwOnRemove: true);
+        var messenger = CreateMessenger(CreateFactory(registrar, api), hwnd);
+        var laterSubscriberRan = 0;
+        dispatcher.Invoke(() => source.Disposed += (_, _) => Interlocked.Increment(ref laterSubscriberRan));
+
+        Assert.DoesNotThrow(() => dispatcher.Invoke(source.Dispose));
+
+        Assert.That(Volatile.Read(ref laterSubscriberRan), Is.EqualTo(1));
+        Assert.That(registrar.ReleaseCount, Is.EqualTo(3));
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+        var error = Assert.Throws<AggregateException>(messenger.Dispose);
+        Assert.That(error.Flatten().InnerExceptions, Has.Count.EqualTo(4));
+        Assert.DoesNotThrow(messenger.Dispose);
+        Assert.That(registrar.ReleaseCount, Is.EqualTo(3));
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void DispatcherShutdown_WhenCleanupFails_CompletesAndReportsOnce() {
+        var dispatcher = new DispatcherThread();
+        HwndSource source = null;
+        ISystemMessenger messenger = null;
+        Exception shutdownError = null;
+        var laterShutdownSubscriberRan = 0;
+
+        try {
+            source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+            var hwnd = dispatcher.Invoke(() => source.Handle);
+            var registrar = new RecordingRegistrar(throwOnRelease: true);
+            var api = new RecordingClipboardNativeApi(throwOnRemove: true);
+            messenger = CreateMessenger(CreateFactory(registrar, api), hwnd);
+            dispatcher.Invoke(() => dispatcher.Dispatcher.ShutdownStarted += (_, _) => {
+                try {
+                    if (!source.IsDisposed) {
+                        source.Dispose();
+                    }
+                }
+                catch (Exception) {
+                }
+                Interlocked.Increment(ref laterShutdownSubscriberRan);
+            });
+
+            try {
+                dispatcher.Invoke(() => dispatcher.Dispatcher.InvokeShutdown());
+            }
+            catch (Exception exception) {
+                shutdownError = exception;
+            }
+
+            var shutdownFailed = shutdownError is not null;
+            var dispatcherNeedsFailureFallback = shutdownFailed && dispatcher.IsAlive &&
+                !dispatcher.Dispatcher.HasShutdownFinished;
+            if (dispatcherNeedsFailureFallback) {
+                try {
+                    dispatcher.Invoke(() => {
+                        if (!source.IsDisposed) {
+                            try {
+                                source.Dispose();
+                            }
+                            catch (Exception) {
+                            }
+                        }
+                        Dispatcher.ExitAllFrames();
+                    });
+                }
+                catch (Exception) {
+                }
+            }
+
+            dispatcher.Dispose();
+            Assert.That(shutdownError, Is.Null);
+            Assert.That(laterShutdownSubscriberRan, Is.EqualTo(1));
+            Assert.That(dispatcher.Dispatcher.HasShutdownFinished, Is.True);
+            var error = Assert.Throws<AggregateException>(messenger.Dispose);
+            Assert.That(error.Flatten().InnerExceptions, Has.Count.EqualTo(4));
+            Assert.That(error.Flatten().InnerExceptions, Has.Some.TypeOf<Win32Exception>());
+            Assert.That(registrar.ReleaseCount, Is.EqualTo(3));
+            Assert.That(api.RemoveCount, Is.EqualTo(1));
+            Assert.DoesNotThrow(messenger.Dispose);
+        }
+        finally {
+            var dispatcherNeedsFailureFallback = dispatcher.IsAlive &&
+                !dispatcher.Dispatcher.HasShutdownFinished;
+            if (dispatcherNeedsFailureFallback && source is not null) {
+                try {
+                    dispatcher.Invoke(() => {
+                        if (!source.IsDisposed) {
+                            try {
+                                source.Dispose();
+                            }
+                            catch (Exception) {
+                            }
+                        }
+                        Dispatcher.ExitAllFrames();
+                    });
+                }
+                catch (Exception) {
+                }
+            }
+            dispatcher.Dispose();
+        }
+    }
+
+    [Test]
+    public async Task ForegroundDispose_WaitsForOwnerCleanupAndReportsItsFailureOnce() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        var hwnd = dispatcher.Invoke(() => source.Handle);
+        using var removeStarted = new ManualResetEventSlim();
+        using var continueRemove = new ManualResetEventSlim();
+        using var foregroundDisposeStarted = new ManualResetEventSlim();
+        var registrar = new RecordingRegistrar();
+        var api = new RecordingClipboardNativeApi(throwOnRemove: true) {
+            RemoveStarted = removeStarted,
+            ContinueRemove = continueRemove,
+        };
+        var messenger = CreateMessenger(CreateFactory(registrar, api), hwnd);
+        var sourceClosure = Task.Run(() => dispatcher.Invoke(source.Dispose));
+        var foregroundDisposalError = default(Exception);
+        var foregroundDisposer = new Thread(() => {
+            foregroundDisposeStarted.Set();
+            try {
+                messenger.Dispose();
+            }
+            catch (Exception exception) {
+                foregroundDisposalError = exception;
+            }
+        });
+        foregroundDisposer.IsBackground = true;
+
+        try {
+            Assert.That(removeStarted.Wait(TimeSpan.FromSeconds(10)), Is.True);
+            foregroundDisposer.Start();
+            Assert.That(foregroundDisposeStarted.Wait(TimeSpan.FromSeconds(10)), Is.True);
+            var foregroundDisposalFinishedOrWaited = SpinWait.SpinUntil(
+                () => !foregroundDisposer.IsAlive ||
+                    (foregroundDisposer.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(10));
+            Assert.That(foregroundDisposalFinishedOrWaited, Is.True);
+            Assert.That(foregroundDisposer.IsAlive, Is.True);
+
+            continueRemove.Set();
+            await sourceClosure.WaitAsync(TimeSpan.FromSeconds(10));
+            var foregroundDisposalStopped = foregroundDisposer.Join(TimeSpan.FromSeconds(10));
+            Assert.That(foregroundDisposalStopped, Is.True);
+            var error = foregroundDisposalError as AggregateException;
+            Assert.That(error, Is.Not.Null);
+            Assert.That(error.Flatten().InnerExceptions, Has.Some.TypeOf<Win32Exception>());
+            Assert.DoesNotThrow(messenger.Dispose);
+            Assert.That(api.RemoveCount, Is.EqualTo(1));
+            Assert.That(registrar.ReleaseCount, Is.EqualTo(3));
+        }
+        finally {
+            continueRemove.Set();
+            try {
+                await sourceClosure.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            catch (Exception) {
+            }
+            if (foregroundDisposer.IsAlive) {
+                var foregroundDisposalStopped = foregroundDisposer.Join(TimeSpan.FromSeconds(10));
+                Assert.That(foregroundDisposalStopped, Is.True);
+            }
+            if (!dispatcher.Invoke(() => source.IsDisposed)) {
+                dispatcher.Invoke(source.Dispose);
+            }
+        }
+    }
+
+    [Test]
+    public void SharedOwnerClosureFailure_IsReportedOnceAndDoesNotRepeatListenerRemoval() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        var hwnd = dispatcher.Invoke(() => source.Handle);
+        var api = new RecordingClipboardNativeApi(throwOnRemove: true);
+        var registry = new ClipboardListenerRegistry(api);
+        var firstRegistrar = new RecordingRegistrar();
+        var secondRegistrar = new RecordingRegistrar();
+        var first = CreateMessenger(new Win32WindowsMessengerFactory(firstRegistrar, registry), hwnd);
+        var second = CreateMessenger(new Win32WindowsMessengerFactory(secondRegistrar, registry), hwnd);
+        var laterSubscriberRan = 0;
+        dispatcher.Invoke(() => source.Disposed += (_, _) => Interlocked.Increment(ref laterSubscriberRan));
+
+        Assert.DoesNotThrow(() => dispatcher.Invoke(source.Dispose));
+
+        Assert.That(Volatile.Read(ref laterSubscriberRan), Is.EqualTo(1));
+        Assert.That(api.AddCount, Is.EqualTo(1));
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+        Assert.That(firstRegistrar.ReleaseCount, Is.EqualTo(3));
+        Assert.That(secondRegistrar.ReleaseCount, Is.EqualTo(3));
+        var error = Assert.Throws<AggregateException>(first.Dispose);
+        Assert.That(error.Flatten().InnerExceptions, Has.Count.EqualTo(1));
+        Assert.DoesNotThrow(second.Dispose);
+        Assert.DoesNotThrow(first.Dispose);
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void ReleasedMessenger_DoesNotReceiveLaterSharedLeaseCleanupFailure() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        var hwnd = dispatcher.Invoke(() => source.Handle);
+        var api = new RecordingClipboardNativeApi();
+        var registry = new ClipboardListenerRegistry(api);
+        var releasedRegistrar = new RecordingRegistrar();
+        var activeRegistrar = new RecordingRegistrar();
+        var releasedMessenger = CreateMessenger(
+            new Win32WindowsMessengerFactory(releasedRegistrar, registry), hwnd);
+
+        releasedMessenger.Dispose();
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+        var activeMessenger = CreateMessenger(
+            new Win32WindowsMessengerFactory(activeRegistrar, registry), hwnd);
+        Assert.That(api.AddCount, Is.EqualTo(2));
+        api.ThrowOnRemove = true;
+
+        dispatcher.Invoke(source.Dispose);
+
+        Assert.That(api.RemoveCount, Is.EqualTo(2));
+        Assert.DoesNotThrow(releasedMessenger.Dispose);
+        Assert.Throws<AggregateException>(activeMessenger.Dispose);
+        Assert.DoesNotThrow(activeMessenger.Dispose);
+        Assert.That(releasedRegistrar.ReleaseCount, Is.EqualTo(3));
+        Assert.That(activeRegistrar.ReleaseCount, Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task OwnerCleanupFailure_IsReportedByPublicMessengerStreamDisposalOnce() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(Win32WindowsMessengerFactoryTest)));
+        var hwnd = dispatcher.Invoke(() => source.Handle);
+        var registrar = new RecordingRegistrar();
+        var api = new RecordingClipboardNativeApi(throwOnRemove: true);
+        var factory = CreateFactory(registrar, api);
+        var messengerSet = new SystemMessengerSet {
+            Factories = [factory],
+        };
+        var enumerator = messengerSet.ReadSystemMessages(hwnd, CancellationToken.None).GetAsyncEnumerator();
+
+        try {
+            var moveNext = enumerator.MoveNextAsync().AsTask();
+            dispatcher.Invoke(() => NativeMethods.SendMessageW(
+                hwnd, ClipboardUpdateMessage, (nint)1, (nint)2));
+            var hasMessage = await moveNext.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(hasMessage, Is.True);
+            Assert.That(enumerator.Current, Is.TypeOf<ClipboardChange>());
+
+            dispatcher.Invoke(source.Dispose);
+
+            var error = await Assert.ThrowsAsync<AggregateException>(async () =>
+                await enumerator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.That(error.Flatten().InnerExceptions, Has.Some.TypeOf<Win32Exception>());
+            await enumerator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.That(api.RemoveCount, Is.EqualTo(1));
+            Assert.That(registrar.ReleaseCount, Is.EqualTo(3));
+        }
+        finally {
+            api.ThrowOnRemove = false;
+            try {
+                await enumerator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            catch (Exception) {
+            }
+            if (!dispatcher.Invoke(() => source.IsDisposed)) {
+                dispatcher.Invoke(source.Dispose);
+            }
         }
     }
 

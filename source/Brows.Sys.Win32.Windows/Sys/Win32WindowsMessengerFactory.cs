@@ -93,6 +93,10 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         private readonly ClipboardListenerRegistry ClipboardRegistry;
         private readonly Lock Locker = new();
         private readonly List<IDisposable> Registrations = [];
+        private readonly List<Exception> DeferredOwnerCleanupErrors = [];
+        private readonly TaskCompletionSource OwnerCleanupCompleted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool OwnerCleanupInProgress;
         private int Disposed;
 
         private nint Hook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled) {
@@ -116,7 +120,8 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         }
 
         private void OnOwnerClosing(object sender, EventArgs args) {
-            Dispose();
+            var dispatcherIsClosing = sender is Dispatcher;
+            DisposeForOwnerClosure(dispatcherIsClosing);
         }
 
         private bool OwnerLifetimeHasEnded(Dispatcher dispatcher) {
@@ -139,18 +144,64 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
             registration.Dispose();
         }
 
-        private void Cleanup(bool removeHook) {
+        private bool TryStartOwnerCleanup() {
+            lock (Locker) {
+                if (Volatile.Read(ref Disposed) != 0) {
+                    return false;
+                }
+                OwnerCleanupInProgress = true;
+                Volatile.Write(ref Disposed, 1);
+                return true;
+            }
+        }
+
+        private bool TryStartForegroundCleanup() {
+            lock (Locker) {
+                if (Volatile.Read(ref Disposed) != 0) {
+                    return false;
+                }
+                Volatile.Write(ref Disposed, 1);
+                return true;
+            }
+        }
+
+        private void WaitForOwnerCleanup() {
+            var currentThreadCanRunOwnerCleanup = Source.Dispatcher.CheckAccess();
+            bool ownerCleanupIsInProgress;
+            lock (Locker) {
+                ownerCleanupIsInProgress = OwnerCleanupInProgress;
+            }
+            var currentThreadWouldDeadlock = ownerCleanupIsInProgress && currentThreadCanRunOwnerCleanup;
+            var shouldWaitForOwnerCleanup = ownerCleanupIsInProgress && !currentThreadWouldDeadlock;
+            if (shouldWaitForOwnerCleanup) {
+                OwnerCleanupCompleted.Task.GetAwaiter().GetResult();
+            }
+        }
+
+        private List<Exception> Cleanup(bool removeHook,
+                                        bool ownerIsClosing,
+                                        bool dispatcherIsClosing) {
             var errors = new List<Exception>();
             try {
                 Source.Disposed -= OnOwnerClosing;
-                Source.Dispatcher.ShutdownStarted -= OnOwnerClosing;
-                var canRemoveHook = removeHook && !Source.IsDisposed;
-                if (canRemoveHook) {
-                    Source.RemoveHook(Hook);
-                }
             }
             catch (Exception exception) {
                 errors.Add(exception);
+            }
+            try {
+                Source.Dispatcher.ShutdownStarted -= OnOwnerClosing;
+            }
+            catch (Exception exception) {
+                errors.Add(exception);
+            }
+            var canRemoveHook = removeHook && !Source.IsDisposed;
+            if (canRemoveHook) {
+                try {
+                    Source.RemoveHook(Hook);
+                }
+                catch (Exception exception) {
+                    errors.Add(exception);
+                }
             }
             IDisposable[] owned;
             lock (Locker) {
@@ -159,15 +210,65 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
             }
             foreach (var registration in owned) {
                 try {
-                    registration.Dispose();
+                    var isOwnerCleanupClipboardLease = ownerIsClosing &&
+                        registration is ClipboardListenerRegistry.IClipboardListenerLease;
+                    if (isOwnerCleanupClipboardLease) {
+                        var lease = (ClipboardListenerRegistry.IClipboardListenerLease)registration;
+                        var error = lease.DisposeForOwnerClosure(dispatcherIsClosing);
+                        if (error is not null) {
+                            errors.Add(error);
+                        }
+                    }
+                    else {
+                        registration.Dispose();
+                    }
                 }
                 catch (Exception exception) {
                     errors.Add(exception);
                 }
             }
+            return errors;
+        }
+
+        private void DisposeForOwnerClosure(bool dispatcherIsClosing) {
+            var ownerCleanupCanStart = TryStartOwnerCleanup();
+            if (!ownerCleanupCanStart) {
+                return;
+            }
+            try {
+                SystemMessaged = null;
+                var errors = Cleanup(removeHook: true, ownerIsClosing: true,
+                    dispatcherIsClosing: dispatcherIsClosing);
+                if (errors.Count != 0) {
+                    lock (Locker) {
+                        DeferredOwnerCleanupErrors.AddRange(errors);
+                    }
+                }
+            }
+            finally {
+                lock (Locker) {
+                    OwnerCleanupInProgress = false;
+                }
+                OwnerCleanupCompleted.TrySetResult();
+            }
+        }
+
+        private void ThrowCleanupErrors(List<Exception> errors) {
             if (errors.Count != 0) {
                 throw new AggregateException("System listener cleanup failed.", errors);
             }
+        }
+
+        private void ThrowDeferredOwnerCleanupErrors() {
+            List<Exception> errors;
+            lock (Locker) {
+                if (DeferredOwnerCleanupErrors.Count == 0) {
+                    return;
+                }
+                errors = [.. DeferredOwnerCleanupErrors];
+                DeferredOwnerCleanupErrors.Clear();
+            }
+            ThrowCleanupErrors(errors);
         }
 
         internal Win32WindowsMessenger(nint hwnd,
@@ -210,7 +311,7 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
                     if (ownerLifetimeHasEnded) {
                         return;
                     }
-                    IDisposable clipboardRegistration;
+                    ClipboardListenerRegistry.IClipboardListenerLease clipboardRegistration;
                     try {
                         clipboardRegistration = ClipboardRegistry.Acquire(Source);
                     }
@@ -262,27 +363,40 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         public nint Hwnd { get; }
 
         public void Dispose() {
-            if (Interlocked.Exchange(ref Disposed, 1) != 0) {
-                return;
-            }
-            SystemMessaged = null;
-            var dispatcher = Source.Dispatcher;
-            if (dispatcher.CheckAccess()) {
-                Cleanup(true);
-                return;
-            }
-            if (DispatcherIsShuttingDown(dispatcher)) {
-                Cleanup(false);
+            var foregroundCleanupCanStart = TryStartForegroundCleanup();
+            if (!foregroundCleanupCanStart) {
+                WaitForOwnerCleanup();
+                ThrowDeferredOwnerCleanupErrors();
                 return;
             }
             try {
-                dispatcher.Invoke(() => Cleanup(true));
+                SystemMessaged = null;
+                var dispatcher = Source.Dispatcher;
+                if (dispatcher.CheckAccess()) {
+                    ThrowCleanupErrors(Cleanup(removeHook: true, ownerIsClosing: false,
+                        dispatcherIsClosing: false));
+                    return;
+                }
+                if (DispatcherIsShuttingDown(dispatcher)) {
+                    ThrowCleanupErrors(Cleanup(removeHook: false, ownerIsClosing: false,
+                        dispatcherIsClosing: false));
+                    return;
+                }
+                try {
+                    dispatcher.Invoke(() => ThrowCleanupErrors(Cleanup(removeHook: true,
+                        ownerIsClosing: false, dispatcherIsClosing: false)));
+                }
+                catch (TaskCanceledException) when (DispatcherIsShuttingDown(dispatcher)) {
+                    ThrowCleanupErrors(Cleanup(removeHook: false, ownerIsClosing: false,
+                        dispatcherIsClosing: false));
+                }
+                catch (InvalidOperationException) when (DispatcherIsShuttingDown(dispatcher)) {
+                    ThrowCleanupErrors(Cleanup(removeHook: false, ownerIsClosing: false,
+                        dispatcherIsClosing: false));
+                }
             }
-            catch (TaskCanceledException) when (DispatcherIsShuttingDown(dispatcher)) {
-                Cleanup(false);
-            }
-            catch (InvalidOperationException) when (DispatcherIsShuttingDown(dispatcher)) {
-                Cleanup(false);
+            finally {
+                OwnerCleanupCompleted.TrySetResult();
             }
         }
     }

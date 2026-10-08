@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 
 namespace Brows.Sys;
 
@@ -216,6 +217,106 @@ internal sealed class ClipboardListenerRegistryTest {
         Assert.That(api.AddCount, Is.EqualTo(1));
         Assert.That(api.RemoveCount, Is.EqualTo(1));
         Assert.DoesNotThrow(lease.Dispose);
+    }
+
+    [Test]
+    public void SourceClosure_WhenNativeRemovalFails_StillNotifiesLaterSubscribersAndDefersError() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
+        var api = new RecordingClipboardNativeApi {
+            RemoveFailureCode = 5,
+        };
+        var registry = new ClipboardListenerRegistry(api);
+        var lease = dispatcher.Invoke(() => registry.Acquire(source));
+        var laterSubscriberRan = 0;
+        dispatcher.Invoke(() => source.Disposed += (_, _) => Interlocked.Increment(ref laterSubscriberRan));
+
+        Assert.DoesNotThrow(() => dispatcher.Invoke(source.Dispose));
+
+        Assert.That(Volatile.Read(ref laterSubscriberRan), Is.EqualTo(1));
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+        var error = Assert.Throws<Win32Exception>(lease.Dispose);
+        Assert.That(error.NativeErrorCode, Is.EqualTo(5));
+        Assert.DoesNotThrow(lease.Dispose);
+        Assert.That(api.RemoveCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void DispatcherShutdown_WhenNativeRemovalFails_CompletesAndDefersError() {
+        using var dispatcher = new DispatcherThread();
+        var source = dispatcher.Invoke(() => DispatcherThread.CreateSource(nameof(ClipboardListenerRegistryTest)));
+        var shutdownError = default(Exception);
+        var api = new RecordingClipboardNativeApi {
+            RemoveFailureCode = 5,
+        };
+        var registry = new ClipboardListenerRegistry(api);
+        var lease = dispatcher.Invoke(() => registry.Acquire(source));
+        var laterShutdownSubscriberRan = 0;
+        dispatcher.Invoke(() => dispatcher.Dispatcher.ShutdownStarted += (_, _) => {
+            if (!source.IsDisposed) {
+                source.Dispose();
+            }
+            Interlocked.Increment(ref laterShutdownSubscriberRan);
+        });
+        try {
+            try {
+                dispatcher.Invoke(() => dispatcher.Dispatcher.InvokeShutdown());
+            }
+            catch (Exception exception) {
+                shutdownError = exception;
+            }
+
+            var shutdownFailed = shutdownError is not null;
+            var dispatcherNeedsFailureFallback = shutdownFailed && dispatcher.IsAlive &&
+                !dispatcher.Dispatcher.HasShutdownFinished;
+            if (dispatcherNeedsFailureFallback) {
+                try {
+                    dispatcher.Invoke(() => {
+                        if (!source.IsDisposed) {
+                            try {
+                                source.Dispose();
+                            }
+                            catch (Exception) {
+                            }
+                        }
+                        Dispatcher.ExitAllFrames();
+                    });
+                }
+                catch (Exception) {
+                }
+            }
+
+            dispatcher.Dispose();
+            Assert.That(shutdownError, Is.Null);
+            Assert.That(laterShutdownSubscriberRan, Is.EqualTo(1));
+            Assert.That(dispatcher.Dispatcher.HasShutdownFinished, Is.True);
+            Assert.That(api.RemoveCount, Is.EqualTo(1));
+            var cleanupError = Assert.Throws<Win32Exception>(lease.Dispose);
+            Assert.That(cleanupError.NativeErrorCode, Is.EqualTo(5));
+            Assert.DoesNotThrow(lease.Dispose);
+            Assert.That(api.RemoveCount, Is.EqualTo(1));
+        }
+        finally {
+            var dispatcherNeedsFailureFallback = dispatcher.IsAlive &&
+                !dispatcher.Dispatcher.HasShutdownFinished && shutdownError is not null;
+            if (dispatcherNeedsFailureFallback) {
+                try {
+                    dispatcher.Invoke(() => {
+                        if (!source.IsDisposed) {
+                            try {
+                                source.Dispose();
+                            }
+                            catch (Exception) {
+                            }
+                        }
+                        Dispatcher.ExitAllFrames();
+                    });
+                }
+                catch (Exception) {
+                }
+            }
+            dispatcher.Dispose();
+        }
     }
 
     [Test]

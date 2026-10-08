@@ -106,8 +106,12 @@ per `HwndSource` across factory instances and active readers; each messenger own
 a reference-counted lease. The native listener is added for the first reader and
 removed after the last reader releases its lease. Source closure or dispatcher
 shutdown invalidates remaining leases. Repeated cleanup is safe and never
-disposes the borrowed WPF source. Window closure still does not complete the
-composition stream; cancel the reader as before.
+disposes the borrowed WPF source. Cleanup failures raised during WPF owner-close
+events are retained and reported as an `AggregateException` when the host later
+ends enumeration, unless a factory or cancellation error is already primary.
+The event handlers return normally so WPF can finish closing the source or
+dispatcher. Window closure still does not complete the composition stream; cancel
+the reader as before.
 
 Clipboard registration happens automatically when a messenger is created. If
 registration fails for a live window, stream creation fails with the native error;
