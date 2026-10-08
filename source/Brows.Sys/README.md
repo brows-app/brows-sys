@@ -28,8 +28,8 @@ references these contracts transitively.
 | `ClipboardChange` | Signals a clipboard change and carries a sequence-number state hint. |
 
 Contracts are in `Brows.Sys`. The `ClipboardChange` message is in
-`Brows.Sys.Messages`. Device models are under `Brows.Sys.Messages` and
-`Brows.Sys.Messages.DeviceMessages`. Concrete
+`Brows.Sys.Messages.ClipboardMessages`. Device models are under
+`Brows.Sys.Messages` and `Brows.Sys.Messages.DeviceMessages`. Concrete
 change records are in `Brows.Sys.Messages.DeviceMessages.DeviceChanges`;
 the volume model is in `Brows.Sys.Messages.DeviceMessages.Devices`.
 
@@ -114,7 +114,7 @@ contract:
 
 ```csharp
 using Brows.Sys;
-using Brows.Sys.Messages;
+using Brows.Sys.Messages.ClipboardMessages;
 using System;
 
 static void HandleSystemMessage(ISystemMessage message) {
