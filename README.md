@@ -78,21 +78,6 @@ The test projects are not packable. Generated binaries, test output, packages,
 and symbol packages are placed under `out/` and should not be committed.
 Only use `--no-build` after building the current code in the same configuration.
 
-If the Win32 test adapter reports a missing `nunit.engine.api` assembly, the
-current local workaround is to copy its engine files into the ignored test
-output, then rerun the test command:
-
-```powershell
-$adapterDirectory = Join-Path $env:USERPROFILE '.nuget/packages/nunit3testadapter/6.3.0/build/net8.0'
-$testOutputDirectory = 'out/tests/bin/Brows.Sys.Win32.Tests/release_net10.0'
-Copy-Item -Path @(
-  (Join-Path $adapterDirectory 'nunit.engine.dll'),
-  (Join-Path $adapterDirectory 'nunit.engine.api.dll'),
-  (Join-Path $adapterDirectory 'nunit.engine.core.dll'),
-  (Join-Path $adapterDirectory 'testcentric.engine.metadata.dll')
-) -Destination $testOutputDirectory -Force
-```
-
 ## Package documentation
 
 Each source project has its own `README.md`. Shared source build properties set
