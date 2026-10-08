@@ -1,8 +1,8 @@
 # Brows.Sys
 
-Message contracts and immutable device-change models for the Brows system
-notification libraries. This package targets `net10.0` and contains no native
-window-hook implementation.
+Message contracts and immutable device-change and clipboard-change records for
+the Brows system notification libraries. This package targets `net10.0` and
+contains no native window-hook implementation.
 
 ## Installation
 
@@ -25,9 +25,11 @@ references these contracts transitively.
 | `PortDevice` | Copies the friendly port or connected-device name. |
 | `InterfaceDevice` | Copies the interface class GUID and native interface name. |
 | `DeviceTreeChange` | Signals that consumers should refresh their device inventory. |
+| `ClipboardChange` | Signals a clipboard change and carries a sequence-number state hint. |
 
-Contracts are in `Brows.Sys`. Device models are under
-`Brows.Sys.Messages` and `Brows.Sys.Messages.DeviceMessages`. Concrete
+Contracts are in `Brows.Sys`. The `ClipboardChange` message is in
+`Brows.Sys.Messages`. Device models are under `Brows.Sys.Messages` and
+`Brows.Sys.Messages.DeviceMessages`. Concrete
 change records are in `Brows.Sys.Messages.DeviceMessages.DeviceChanges`;
 the volume model is in `Brows.Sys.Messages.DeviceMessages.Devices`.
 
@@ -36,7 +38,8 @@ reserved for libraries in this repository. Applications consume notifications
 through the public `ISystemMessengerSet` in `Brows.Sys.Composition`.
 
 `SystemMessageKind.None=0` represents an unspecified notification category and is
-the default enum value. `SystemMessageKind.Device=1` identifies device notifications.
+the default enum value. `SystemMessageKind.Device=1` identifies device notifications,
+and `SystemMessageKind.Clipboard=2` identifies clipboard notifications.
 `None` does not represent an emitted notification or the absence of clipboard contents.
 `DeviceMessageKind.TreeChange` identifies
 `DeviceTreeChange`, whose inherited `Device` is null because no individual device
@@ -92,6 +95,39 @@ The supplied decoder can emit a recognized device-change event with a null
 native device type is outside the platform's enumeration produce no message. The
 device kind is available through `Device.DeviceKind`; there is no separate kind
 property on `DeviceChange`.
+
+## Clipboard notifications
+
+`ClipboardChange` is emitted for each received clipboard-change notification.
+No initial snapshot is sent. The message contains no clipboard contents, so
+consumers should read any needed content separately. Its `SequenceNumber` is the
+current clipboard sequence number for the calling window station when the
+notification is processed. It is a state hint, not an event identifier or a
+content snapshot. Zero means the value is unavailable, including when clipboard
+access is limited. Delayed rendering can affect when the value advances. Queued
+notifications can carry the same value, and the 32-bit value can wrap.
+Consumers should accept zero and repeated values and should not treat the
+sequence number as an unlimited monotonic counter.
+
+A consumer can identify the message through the public `ISystemMessage`
+contract:
+
+```csharp
+using Brows.Sys;
+using Brows.Sys.Messages;
+using System;
+
+static void HandleSystemMessage(ISystemMessage message) {
+    if (message is ClipboardChange clipboardChange) {
+        if (clipboardChange.SequenceNumber == 0) {
+            Console.WriteLine("Clipboard changed; sequence number unavailable.");
+            return;
+        }
+
+        Console.WriteLine($"Clipboard changed; sequence {clipboardChange.SequenceNumber}.");
+    }
+}
+```
 
 ## Named devices and topology
 

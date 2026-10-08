@@ -12,5 +12,10 @@ public enum SystemMessageKind {
     /// <summary>
     /// A notification concerning a device.
     /// </summary>
-    Device
+    Device = 1,
+
+    /// <summary>
+    /// A notification that the system clipboard changed.
+    /// </summary>
+    Clipboard = 2
 }
