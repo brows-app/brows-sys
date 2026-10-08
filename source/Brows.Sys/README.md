@@ -35,7 +35,10 @@ the volume model is in `Brows.Sys.Messages.DeviceMessages.Devices`.
 reserved for libraries in this repository. Applications consume notifications
 through the public `ISystemMessengerSet` in `Brows.Sys.Composition`.
 
-The current `SystemMessageKind` is `Device`. `DeviceMessageKind.TreeChange` identifies
+`SystemMessageKind.None=0` represents an unspecified notification category and is
+the default enum value. `SystemMessageKind.Device=1` identifies device notifications.
+`None` does not represent an emitted notification or the absence of clipboard contents.
+`DeviceMessageKind.TreeChange` identifies
 `DeviceTreeChange`, whose inherited `Device` is null because no individual device
 is identified. Consumers should enumerate devices initially and refresh their inventory
 when this notification arrives; notifications do not provide an initial snapshot.
