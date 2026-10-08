@@ -1,5 +1,4 @@
-﻿using Brows.Sys;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -435,11 +434,11 @@ internal sealed class Win32WindowsMessengerFactoryTest {
     }
 
     [Test]
-    public void UnsupportedWindowAndPreCanceledCreationDoNotRegister() {
+    public async Task UnsupportedWindowAndPreCanceledCreationDoNotRegister() {
         var registrar = new RecordingRegistrar();
         ISystemMessengerFactory factory = new Win32WindowsMessengerFactory(registrar);
         Assert.That(factory.CreateSystemMessenger((nint)0, CancellationToken.None).GetAwaiter().GetResult(), Is.Null);
-        Assert.CatchAsync<OperationCanceledException>(async () => {
+        await Assert.CatchAsync<OperationCanceledException>(async () => {
             await factory.CreateSystemMessenger((nint)0, new CancellationToken(true));
         });
         Assert.That(registrar.Classes, Is.Empty);

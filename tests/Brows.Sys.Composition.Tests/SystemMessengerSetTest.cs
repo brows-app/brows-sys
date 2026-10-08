@@ -152,7 +152,7 @@ internal sealed class SystemMessengerSetTest {
         Assert.That(enumerator.Current, Is.SameAs(messages[0]));
         cancellation.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(async () => {
+        await Assert.CatchAsync<OperationCanceledException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
         });
 
@@ -179,7 +179,7 @@ internal sealed class SystemMessengerSetTest {
         throwingMessenger.Emit(new TestMessage(5));
         Assert.That(await moveNext.WaitAsync(WaitTimeout), Is.True);
 
-        var error = Assert.ThrowsAsync<AggregateException>(async () => {
+        var error = await Assert.ThrowsAsync<AggregateException>(async () => {
             await DisposeEnumeratorAsync(enumerator);
         });
 
@@ -201,7 +201,7 @@ internal sealed class SystemMessengerSetTest {
                 new InvalidOperationException("Factory failed."))));
         var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
-        var error = Assert.ThrowsAsync<InvalidOperationException>(async () => {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
         });
 
@@ -223,7 +223,7 @@ internal sealed class SystemMessengerSetTest {
                 new InvalidOperationException("Factory failed."))));
         var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
-        var error = Assert.ThrowsAsync<InvalidOperationException>(async () => {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
         });
 
@@ -251,7 +251,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => canceledTask));
         var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
-        Assert.CatchAsync<OperationCanceledException>(async () => {
+        await Assert.CatchAsync<OperationCanceledException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
         });
 
@@ -275,7 +275,7 @@ internal sealed class SystemMessengerSetTest {
             new DelegateFactory(() => throw new InvalidOperationException("Synchronous failure.")));
         var enumerator = messengerSet.ReadAllSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
 
-        var error = Assert.ThrowsAsync<InvalidOperationException>(async () => {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () => {
             await enumerator.MoveNextAsync().AsTask().WaitAsync(WaitTimeout);
         });
         Assert.That(error!.Message, Is.EqualTo("Synchronous failure."));
@@ -316,17 +316,17 @@ internal sealed class SystemMessengerSetTest {
         var moveNext = enumerator.MoveNextAsync().AsTask();
 
         await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
-        Assert.DoesNotThrowAsync(async () => {
+        await Assert.DoesNotThrowAsync(async () => {
             await enumerator.DisposeAsync().AsTask().WaitAsync(WaitTimeout);
         });
 
-        Assert.CatchAsync<OperationCanceledException>(async () => {
+        await Assert.CatchAsync<OperationCanceledException>(async () => {
             await moveNext.WaitAsync(WaitTimeout);
         });
         Assert.That(messenger.SubscriptionCount, Is.Zero);
         Assert.That(messenger.DisposeCount, Is.EqualTo(1));
 
-        Assert.DoesNotThrowAsync(async () => {
+        await Assert.DoesNotThrowAsync(async () => {
             await enumerator.DisposeAsync().AsTask().WaitAsync(WaitTimeout);
         });
         Assert.That(messenger.DisposeCount, Is.EqualTo(1));
@@ -346,7 +346,7 @@ internal sealed class SystemMessengerSetTest {
         await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
         cancellation.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(async () => {
+        await Assert.CatchAsync<OperationCanceledException>(async () => {
             await moveNext.WaitAsync(WaitTimeout);
         });
         Assert.That(messenger.SubscriptionCount, Is.Zero);
