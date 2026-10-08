@@ -318,13 +318,17 @@ class is the same as the namespace of the type it tests.
 
 When asked to review code, inspect the entire requested scope thoroughly and
 identify all bugs and issues you can find. Write the findings to `Review.md` in
-the repository root. Number each issue so it can be referenced later. For every
-issue, describe the problem and a way to resolve it. Cite specific file names
-and line numbers where applicable. Review existing findings in `Review.md` before
-editing it so relevant issues are retained or updated without duplication.
-Keep review issue numbers stable: never renumber existing issues or reuse their
-numbers, including those marked resolved. Assign each new issue a number greater
-than the highest issue number already used in `Review.md`.
+the directory `_agents` in the repository root. Number each issue so it can be
+referenced later. For every issue, describe the problem and a way to resolve it.
+Cite specific file names and line numbers where applicable. Review existing
+findings in `Review.md` before editing it so relevant issues are retained or
+updated without duplication. Keep review issue numbers stable: never renumber
+existing issues or reuse their numbers, including those marked resolved. However,
+do not search the Git history for a `Review.md` if one does not exist: in that
+case, simply create a new `Review.md` and start with issue #1. Assign each new
+issue a number greater than the highest issue number already used in `Review.md`.
+
+> The full path to `Review.md` should be `{root}/_agents/Review.md`.
 
 When asked to fix issues from `Review.md`, work only on the issue numbers
 specified in the request. Prefer red/green testing: first add a test that fails
@@ -346,6 +350,9 @@ its worktree branch. The first line of the commit message must start with
 broken and how it was fixed. Once the commit is ready, notify the requester
 that the worktree branch is ready to be merged.
 
+> The `{short-description}` in branch names should be hyphenated, for example,
+> `agent/5/validate-arguments`.
+
 Before reporting completion, review the final diff for unintended changes,
 whitespace problems, and accidental public API additions. Check new and untracked
 files as well as tracked changes, and confirm that the changes match the request.
@@ -354,3 +361,18 @@ Report completion consistently: summarize what changed, list resolved issue
 numbers when applicable, and state which tests or checks ran and their results.
 Identify any checks that could not run. For worktree fixes, include the branch
 name and commit hash that are ready to be merged.
+
+## Planning
+
+When asked to plan code changes, write your plan to `Plan-{short-description}.md`
+in the directory `_agents` in the repository root. The `{short-description}` should
+be PascalCase, with no spaces, dashes, or underscores in the string.
+
+> For example, the full path to a plan for updating security code would be
+> `{root}/_agents/Plan-SecurityUpdate.md`
+
+Your plan should include enough information for another agent with lesser capability
+to follow it. Include in the plan the means of accomplishing tasks: you will start
+subagents for any tasks that can be logically separated from others, and you will
+review their work as it completes and merge their changes into your main worktree
+branch for the updates.
