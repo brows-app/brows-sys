@@ -1,5 +1,7 @@
 ﻿using Brows.Composition;
+using Brows.Sys;
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -31,7 +33,7 @@ internal sealed class Win32WindowsSampleWindowTest {
     }
 
     [Test]
-    public async Task ListedCompositionCapturesNativeEventsAndClosesAfterReaderCleanup() {
+    public async Task ListedCompositionCapturesDeviceAndPostedClipboardEventsAndClosesAfterReaderCleanup() {
         using var dispatcher = new DispatcherThread();
         var imported = await dispatcher.Invoke(() => Imports.Init(new Environment(), default))
             .WaitAsync(TimeSpan.FromSeconds(10));
@@ -39,15 +41,24 @@ internal sealed class Win32WindowsSampleWindowTest {
         Assert.That(window, Is.Not.Null);
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clipboardCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clipboardRowsBeforePost = -1;
         HwndSource source = null;
         try {
             dispatcher.Invoke(() => {
                 window.Closed += (_, _) => closed.TrySetResult();
                 var log = (EventLog)window.DataContext;
                 log.PropertyChanged += (_, e) => {
-                    var rowsCaptured = e.PropertyName == nameof(EventLog.Count) && log.Count == 5;
-                    if (rowsCaptured) {
+                    var deviceRowsCaptured = e.PropertyName == nameof(EventLog.Count) &&
+                        log.Entries.Count(entry => entry.Category == SystemMessageKind.Device) == 5;
+                    var clipboardRowCount = log.Entries.Count(entry => entry.Category == SystemMessageKind.Clipboard);
+                    var clipboardRowsCaptured = clipboardRowsBeforePost >= 0 &&
+                        clipboardRowCount > clipboardRowsBeforePost;
+                    if (deviceRowsCaptured) {
                         captured.TrySetResult();
+                    }
+                    if (clipboardRowsCaptured) {
+                        clipboardCaptured.TrySetResult();
                     }
                 };
                 var handle = new WindowInteropHelper(window).EnsureHandle();
@@ -68,16 +79,30 @@ internal sealed class Win32WindowsSampleWindowTest {
                 NativeMethods.SendMessageW(handle, 0x0219, 7, 0);
                 SendNamedDevice(handle, 3, 12, "COM3");
                 SendNamedDevice(handle, 5, 28, @"\\?\portable#device");
+                clipboardRowsBeforePost = log.Entries.Count(entry => entry.Category == SystemMessageKind.Clipboard);
+                Assert.That(NativeMethods.PostMessageW(handle, 0x031D, 0, 0), Is.True);
             });
             await captured.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await clipboardCaptured.Task.WaitAsync(TimeSpan.FromSeconds(10));
             dispatcher.Invoke(() => {
                 var log = (EventLog)window.DataContext;
                 Assert.That(log.Status, Is.EqualTo("Listening"));
-                Assert.That(log.Entries.Select(entry => entry.DeviceName),
+                var deviceEntries = log.Entries.Where(entry => entry.Category == SystemMessageKind.Device).ToArray();
+                Assert.That(deviceEntries.Select(entry => entry.DeviceName),
                     Is.EqualTo(new[] { "C", "E", "—", "COM3", @"\\?\portable#device" }));
-                Assert.That(log.Entries.Take(2).All(entry => entry.Flags == "Media, Network"), Is.True);
-                Assert.That(log.Entries[2].ChangeKind, Is.EqualTo("TreeChange"));
-                Assert.That(log.Entries[4].InterfaceClass, Is.EqualTo("6ac27878-a6fa-4155-ba85-f98f491d4f33"));
+                Assert.That(deviceEntries.Take(2).All(entry => entry.Flags == "Media, Network"), Is.True);
+                Assert.That(deviceEntries[2].ChangeKind, Is.EqualTo("TreeChange"));
+                Assert.That(deviceEntries[4].InterfaceClass, Is.EqualTo("6ac27878-a6fa-4155-ba85-f98f491d4f33"));
+                var clipboardEntry = log.Entries
+                    .Last(entry => entry.Category == SystemMessageKind.Clipboard);
+                var sequenceIsDisplayed = clipboardEntry.ClipboardSequence == "Unavailable" ||
+                    uint.TryParse(clipboardEntry.ClipboardSequence, NumberStyles.None,
+                        CultureInfo.InvariantCulture, out _);
+                Assert.That(sequenceIsDisplayed, Is.True);
+                Assert.That(clipboardEntry.DeviceKind, Is.EqualTo("—"));
+                Assert.That(clipboardEntry.DeviceName, Is.EqualTo("—"));
+                Assert.That(clipboardEntry.InterfaceClass, Is.EqualTo("—"));
+                Assert.That(clipboardEntry.Flags, Is.EqualTo("—"));
                 window.Close();
             });
             await closed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -102,6 +127,10 @@ internal sealed class Win32WindowsSampleWindowTest {
     }
 
     private static class NativeMethods {
+        [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool PostMessageW(nint hwnd, uint message, nint wParam, nint lParam);
+
         [DllImport("user32.dll", EntryPoint = "SendMessageW")]
         internal static extern nint SendMessageW(nint hwnd, uint message, nint wParam, nint lParam);
     }

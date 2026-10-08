@@ -1,4 +1,5 @@
 ﻿using Brows.Sys;
+using Brows.Sys.Messages;
 using Brows.Sys.Messages.DeviceMessages.DeviceChanges;
 using System;
 using System.Collections.Generic;
@@ -125,6 +126,33 @@ internal sealed class EventLogControllerTest {
         Assert.That(set.ReadCount, Is.Zero);
     }
 
+    [Test]
+    public async Task DeliversClipboardMessagesToTheLogOnTheDispatcher() {
+        using var dispatcher = new DispatcherThread();
+        var set = new ControlledMessengerSet();
+        var log = new EventLog();
+        var controller = new EventLogController(set, new object(), log, dispatcher.Dispatcher);
+        var updated = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        log.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(EventLog.Count)) {
+                updated.TrySetResult(dispatcher.Dispatcher.CheckAccess());
+            }
+        };
+        dispatcher.Invoke(controller.Start);
+        try {
+            await set.Started.Task.WaitAsync(Timeout);
+            set.Emit(new ClipboardChange { SequenceNumber = 37 });
+            Assert.That(await updated.Task.WaitAsync(Timeout), Is.True);
+            dispatcher.Invoke(() => {
+                Assert.That(log.Count, Is.EqualTo(1));
+                Assert.That(log.Entries[0].Category, Is.EqualTo(SystemMessageKind.Clipboard));
+                Assert.That(log.Entries[0].ClipboardSequence, Is.EqualTo("37"));
+            });
+        }
+        finally {
+            await dispatcher.Invoke(controller.StopAsync).WaitAsync(Timeout);
+        }
+    }
     private sealed class ControlledMessengerSet : ISystemMessengerSet {
         private readonly Channel<ISystemMessage> Messages = Channel.CreateUnbounded<ISystemMessage>();
 

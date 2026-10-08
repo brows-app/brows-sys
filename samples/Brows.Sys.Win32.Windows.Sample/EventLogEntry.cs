@@ -1,4 +1,5 @@
 ﻿using Brows.Sys;
+using Brows.Sys.Messages;
 using Brows.Sys.Messages.DeviceMessages;
 using Brows.Sys.Messages.DeviceMessages.Devices;
 
@@ -6,8 +7,10 @@ namespace Brows;
 
 internal sealed record EventLogEntry(
     DateTimeOffset Timestamp,
+    SystemMessageKind Category,
     string MessageType,
     string ChangeKind,
+    string ClipboardSequence,
     string DeviceKind,
     string DeviceName,
     string InterfaceClass,
@@ -22,6 +25,21 @@ internal sealed record EventLogEntry(
         if (message is null) {
             throw new ArgumentNullException(nameof(message));
         }
+        if (message is ClipboardChange clipboardChange) {
+            var clipboardSequence = clipboardChange.SequenceNumber == 0 ?
+                "Unavailable" : clipboardChange.SequenceNumber.ToString(CultureInfo.InvariantCulture);
+            return new EventLogEntry(
+                timestamp.ToLocalTime(),
+                message.SystemMessageKind,
+                message.GetType().Name,
+                Unavailable,
+                clipboardSequence,
+                Unavailable,
+                Unavailable,
+                Unavailable,
+                Unavailable);
+        }
+
         var change = message as DeviceChange;
         var device = change?.Device;
         var volume = device as VolumeDevice;
@@ -36,8 +54,10 @@ internal sealed record EventLogEntry(
             "TreeChange" : change?.DeviceChangeKind.ToString() ?? Unavailable;
         return new EventLogEntry(
             timestamp.ToLocalTime(),
+            message.SystemMessageKind,
             message.GetType().Name,
             changeKind,
+            Unavailable,
             device?.DeviceKind.ToString() ?? Unavailable,
             Display(deviceName),
             deviceInterface?.InterfaceClassGuid.ToString("D") ?? Unavailable,

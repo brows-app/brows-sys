@@ -2,7 +2,7 @@
 
 The Windows backend for Brows system notifications. This package targets
 `net10.0`, references `Brows.Sys`, and is marked as supported on Windows.
-It contains native declarations and an internal decoder for `WM_DEVICECHANGE`.
+It declares selected device and clipboard APIs and contains an internal `WM_DEVICECHANGE` decoder.
 
 ## Installation and integration
 
@@ -52,17 +52,20 @@ need no payload. All identifiers are copied before publication.
 ## Scope
 
 The package does not currently publish file-system changes, Shell change
-notifications or handle-specific device information.
-The native declarations in `Win32/PlatformInvoke/` include selected kernel32
-functions, but their presence does not provide a public file-watching API.
+notifications, or handle-specific device information.
+The `Win32/PlatformInvoke/` folder contains selected native
+declarations. These do not provide public file-watching or clipboard-listening APIs.
 
 The decoder checks the size advertised by the sender. It cannot establish that
 an arbitrary nonzero native pointer is readable; incoming message data must
 follow the native Windows contract. Native payloads are read synchronously so
 the returned managed records contain copied values.
 
-For supported device changes, consumption uses the contracts and records from
-`Brows.Sys` and the listener supplied by `Brows.Sys.Win32.Windows`.
+This project also declares the Win32 clipboard-listener registration and sequence
+number functions. The WPF adapter performs registration and routes clipboard
+updates to the same public stream as device messages. Applications consume both
+through `ISystemMessengerSet` from `Brows.Sys.Composition`; there is no standalone
+public listener in this package.
 
 ## License and source
 

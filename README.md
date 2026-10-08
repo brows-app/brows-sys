@@ -5,16 +5,17 @@ Explorer replacement. The solution separates message contracts, composition,
 Win32 decoding, and the WPF window adapter into four NuGet packages.
 
 The current implementation reports device-tree changes, named ports, device interfaces,
-and device arrival/removal events. Volume
-notifications identify every affected drive from A through Z and preserve media
-and network flags. File and folder change monitoring, Shell notifications,
-clipboard updates, and other window messages are not currently exposed.
+device arrival/removal events, and clipboard updates. Volume notifications identify
+every affected drive from A through Z and preserve media and network flags.
+Clipboard notifications carry a sequence-number state hint without reading or copying
+clipboard contents. File and folder change monitoring, Shell notifications, and
+other window messages are not currently exposed.
 
 ## Packages
 
 | Package | Target framework | Purpose |
 | --- | --- | --- |
-| [Brows.Sys](source/Brows.Sys/README.md) | `net10.0` | Public message contracts, device-change records, and volume models. |
+| [Brows.Sys](source/Brows.Sys/README.md) | `net10.0` | Contracts, device and clipboard changes, and volume models. |
 | [Brows.Sys.Composition](source/Brows.Sys.Composition/README.md) | `net10.0` | Public async message stream and internal factories integrated with `Brows.Composition`. |
 | [Brows.Sys.Win32](source/Brows.Sys.Win32/README.md) | `net10.0` | Windows-only native declarations and internal device-message decoding. |
 | [Brows.Sys.Win32.Windows](source/Brows.Sys.Win32.Windows/README.md) | `net10.0-windows` | WPF window hooks that produce typed messages. |
@@ -50,8 +51,8 @@ messengers directly through the public API.
   buffers.
 - `tests/Brows.Sys.Win32.Windows.Tests/` tests WPF hook and window lifetimes.
 - [Brows.Sys.Win32.Windows.Sample](samples/Brows.Sys.Win32.Windows.Sample/README.md)
-  displays live typed device notifications in a WPF event log. Run it on Windows
-  with `dotnet run --project samples/Brows.Sys.Win32.Windows.Sample --configuration Release`.
+  displays live typed device and clipboard notifications in a WPF event log. Run
+  it on Windows with `dotnet run --project samples/Brows.Sys.Win32.Windows.Sample --configuration Release`.
 - `Directory.Build.props` supplies common framework, language, and assembly
   settings. `source/Directory.Build.props` and `tests/Directory.Build.props`
   extend those settings for their project groups.

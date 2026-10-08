@@ -3,15 +3,15 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Brows"
-        Title="Brows.Sys — Windows Device Events"
+        Title="Brows.Sys — Windows Notifications"
         Height="600"
         Width="1000"
         MinHeight="360"
         MinWidth="760">
   <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-      <TextBlock Text="Windows device notifications" FontSize="22" FontWeight="SemiBold" />
-      <TextBlock Text="Connect or disconnect storage, ports, or portable devices to generate notifications."
+      <TextBlock Text="Windows system notifications" FontSize="22" FontWeight="SemiBold" />
+      <TextBlock Text="Copy text or files, or connect or disconnect devices, to generate notifications."
                  Margin="0,6,0,12" TextWrapping="Wrap" />
       <StackPanel Orientation="Horizontal">
         <Button Content="Clear" Click="OnClear" Padding="16,5" Margin="0,0,8,0" />
@@ -33,16 +33,19 @@
       <DataGrid x:Name="EventGrid" ItemsSource="{Binding Entries}" AutoGenerateColumns="False"
                 IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
                 EnableRowVirtualization="True" EnableColumnVirtualization="True"
-                HeadersVisibility="Column" SelectionMode="Single">
+                HeadersVisibility="Column" SelectionMode="Single"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto">
         <DataGrid.Columns>
           <DataGridTextColumn Header="Local time" Width="190"
                               Binding="{Binding Timestamp, StringFormat=yyyy-MM-dd HH:mm:ss.fff}" />
+          <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100" />
           <DataGridTextColumn Header="Message" Binding="{Binding MessageType}" Width="180" />
           <DataGridTextColumn Header="Change" Binding="{Binding ChangeKind}" Width="140" />
+          <DataGridTextColumn Header="Clipboard sequence" Binding="{Binding ClipboardSequence}" Width="150" />
           <DataGridTextColumn Header="Device" Binding="{Binding DeviceKind}" Width="80" />
           <DataGridTextColumn Header="Device name" Binding="{Binding DeviceName}" Width="260" />
           <DataGridTextColumn Header="Interface class" Binding="{Binding InterfaceClass}" Width="280" />
-          <DataGridTextColumn Header="Flags" Binding="{Binding Flags}" Width="*" />
+          <DataGridTextColumn Header="Flags" Binding="{Binding Flags}" Width="140" />
         </DataGrid.Columns>
       </DataGrid>
       <TextBlock Text="No events captured yet." HorizontalAlignment="Center" VerticalAlignment="Center"

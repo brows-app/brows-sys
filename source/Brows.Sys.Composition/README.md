@@ -71,6 +71,11 @@ static async Task ReadDevicesAsync(
 }
 ```
 
+Clipboard changes use the public `ISystemMessengerSet.ReadSystemMessages` stream,
+alongside device notifications. Applications can match `ClipboardChange` messages and inspect their
+sequence-number hint. This value may be zero or repeated and is not an event
+identifier or a content snapshot. See the `Brows.Sys` documentation for its limits.
+
 ## Delivery and cleanup
 
 - Enumeration starts factory creation. Each returned messenger is subscribed as

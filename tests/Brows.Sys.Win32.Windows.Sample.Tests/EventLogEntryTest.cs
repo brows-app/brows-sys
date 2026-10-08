@@ -1,4 +1,5 @@
 ﻿using Brows.Sys;
+using Brows.Sys.Messages;
 using Brows.Sys.Messages.DeviceMessages;
 using Brows.Sys.Messages.DeviceMessages.DeviceChanges;
 using Brows.Sys.Messages.DeviceMessages.Devices;
@@ -39,17 +40,58 @@ internal sealed class EventLogEntryTest {
         var entry = EventLogEntry.FromMessage(message, timestamp);
 
         Assert.That(entry.Timestamp, Is.EqualTo(timestamp.ToLocalTime()));
+        Assert.That(entry.Category, Is.EqualTo(SystemMessageKind.Device));
         Assert.That(entry.MessageType, Is.EqualTo(message.GetType().Name));
         Assert.That(entry.ChangeKind, Is.EqualTo(kind.ToString()));
+        Assert.That(entry.ClipboardSequence, Is.EqualTo("—"));
         Assert.That(entry.DeviceKind, Is.EqualTo("Volume"));
         Assert.That(entry.DeviceName, Is.EqualTo("E"));
         Assert.That(entry.Flags, Is.EqualTo("Media, Network"));
     }
 
     [Test]
+    public void FromMessageFormatsClipboardSequenceAsInvariantDecimal() {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            var timestamp = new DateTimeOffset(2026, 10, 7, 12, 30, 45, TimeSpan.Zero);
+            var entry = EventLogEntry.FromMessage(new ClipboardChange {
+                SequenceNumber = uint.MaxValue,
+            }, timestamp);
+
+            Assert.That(entry.Timestamp, Is.EqualTo(timestamp.ToLocalTime()));
+            Assert.That(entry.Category, Is.EqualTo(SystemMessageKind.Clipboard));
+            Assert.That(entry.MessageType, Is.EqualTo(nameof(ClipboardChange)));
+            Assert.That(entry.ChangeKind, Is.EqualTo("—"));
+            Assert.That(entry.ClipboardSequence, Is.EqualTo("4294967295"));
+            Assert.That(entry.DeviceKind, Is.EqualTo("—"));
+            Assert.That(entry.DeviceName, Is.EqualTo("—"));
+            Assert.That(entry.InterfaceClass, Is.EqualTo("—"));
+            Assert.That(entry.Flags, Is.EqualTo("—"));
+        }
+        finally {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
+    }
+
+    [Test]
+    public void FromMessageShowsUnavailableForClipboardSequenceZero() {
+        var entry = EventLogEntry.FromMessage(new ClipboardChange(), DateTimeOffset.Now);
+
+        Assert.That(entry.ClipboardSequence, Is.EqualTo("Unavailable"));
+        Assert.That(entry.Category, Is.EqualTo(SystemMessageKind.Clipboard));
+        Assert.That(entry.DeviceKind, Is.EqualTo("—"));
+        Assert.That(entry.DeviceName, Is.EqualTo("—"));
+        Assert.That(entry.InterfaceClass, Is.EqualTo("—"));
+        Assert.That(entry.Flags, Is.EqualTo("—"));
+    }
+
+    [Test]
     public void FromMessageHandlesMissingDevice() {
         var entry = EventLogEntry.FromMessage(new DeviceArrival(), DateTimeOffset.Now);
 
+        Assert.That(entry.Category, Is.EqualTo(SystemMessageKind.Device));
+        Assert.That(entry.ClipboardSequence, Is.EqualTo("—"));
         Assert.That(entry.DeviceKind, Is.EqualTo("—"));
         Assert.That(entry.DeviceName, Is.EqualTo("—"));
         Assert.That(entry.Flags, Is.EqualTo("—"));

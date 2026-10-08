@@ -1,7 +1,7 @@
 # Brows.Sys.Win32.Windows
 
-A WPF adapter that turns Windows device-change messages into Brows system
-notifications. The package targets `net10.0-windows` with WPF enabled and
+A WPF adapter that turns Windows device-change and clipboard messages into Brows
+system notifications. The package targets `net10.0-windows` with WPF enabled and
 references `Brows.Sys.Composition` and `Brows.Sys.Win32`.
 
 ## Installation
@@ -89,7 +89,7 @@ background context, marshal UI changes to `window.Dispatcher`.
 - Closing the window does not itself complete the message stream. The host
   should cancel its reader and await the reading task's completion.
 
-## Interface registration and cleanup
+## Device and clipboard registration and cleanup
 
 Every messenger automatically registers the disk, volume, and Windows Portable
 Device interface classes using `RegisterDeviceNotificationW`. Registration is
@@ -101,13 +101,37 @@ and hooks are rolled back while preserving the original error. Cancellation duri
 initialization uses the same rollback. The composition reader propagates these
 failures, and the sample displays them in its existing error/status area.
 
-Registrations are owned by safe handles and are released on listener disposal,
-source closure, or dispatcher shutdown. Repeated cleanup is safe and never
+Device registrations are owned by safe handles. Clipboard registration is shared
+per `HwndSource` across factory instances and active readers; each messenger owns
+a reference-counted lease. The native listener is added for the first reader and
+removed after the last reader releases its lease. Source closure or dispatcher
+shutdown invalidates remaining leases. Repeated cleanup is safe and never
 disposes the borrowed WPF source. Window closure still does not complete the
 composition stream; cancel the reader as before.
 
+Clipboard registration happens automatically when a messenger is created. If
+registration fails for a live window, stream creation fails with the native error;
+the adapter rolls back acquired hooks and registrations. Cancellation during
+initialization uses the same cleanup. Consumers use the public
+`ISystemMessengerSet.ReadSystemMessages` method; factory and messenger types remain
+internal.
+
 The profile is fixed. There is no subscription-configuration, device-enumeration,
 metadata-enrichment, or removal-veto API.
+
+## Clipboard notifications
+
+Each received `WM_CLIPBOARDUPDATE` becomes a `ClipboardChange` in the same
+`ReadSystemMessages` stream as device notifications. The adapter samples the current
+sequence number while handling the message. No initial snapshot is sent, and the
+message has no clipboard contents; consumers should read any needed content
+separately.
+
+The sequence number is a state hint, not an event identifier or content snapshot.
+Zero means unavailable. Delayed rendering can affect when it advances, queued
+notifications can repeat a value, and the 32-bit value can wrap. Consumers should
+accept zero and repeated values and avoid treating it as an unlimited monotonic
+counter.
 
 ## Notification scope
 
@@ -120,9 +144,9 @@ null `Device` payload.
 
 The hook leaves Windows' normal message processing in place. Neither the async
 stream nor its message records provide a way to approve or deny native queries,
-including device-removal requests. File/folder changes, Shell notifications,
-clipboard changes, and other window-message categories are not currently
-published by this adapter.
+including device-removal requests. File/folder changes, Shell notifications, and other window-message categories are
+not currently published by this adapter. Clipboard changes are published as
+`ClipboardChange` messages, as described above.
 
 ## License and source
 
