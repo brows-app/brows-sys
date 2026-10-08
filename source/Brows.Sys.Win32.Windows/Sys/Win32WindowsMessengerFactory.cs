@@ -1,4 +1,6 @@
-﻿using Brows.Win32;
+﻿using Brows.Sys.Messages;
+using Brows.Win32;
+using Brows.Win32.PlatformInvoke;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -11,6 +13,7 @@ namespace Brows.Sys;
 
 internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
     private readonly IDeviceNotificationRegistrar Registrar;
+    private readonly ClipboardListenerRegistry ClipboardRegistry;
 
     private static bool DispatcherIsShuttingDown(Dispatcher dispatcher) {
         if (dispatcher is null) {
@@ -40,8 +43,14 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         }
     }
 
-    internal Win32WindowsMessengerFactory(IDeviceNotificationRegistrar registrar) {
+    internal Win32WindowsMessengerFactory(IDeviceNotificationRegistrar registrar)
+        : this(registrar, ClipboardListenerRegistry.Shared) {
+    }
+
+    internal Win32WindowsMessengerFactory(IDeviceNotificationRegistrar registrar,
+                                         ClipboardListenerRegistry clipboardRegistry) {
         Registrar = registrar ?? throw new ArgumentNullException(nameof(registrar));
+        ClipboardRegistry = clipboardRegistry ?? throw new ArgumentNullException(nameof(clipboardRegistry));
     }
 
     public Win32WindowsMessengerFactory() : this(new Win32DeviceNotificationRegistrar()) {
@@ -64,7 +73,7 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         if (source is null) {
             return Task.FromResult<ISystemMessenger>(null);
         }
-        var messenger = new Win32WindowsMessenger(hwnd, source, Registrar);
+        var messenger = new Win32WindowsMessenger(hwnd, source, Registrar, ClipboardRegistry);
         if (!messenger.TryInitialize(cancellationToken)) {
             messenger.Dispose();
             return Task.FromResult<ISystemMessenger>(null);
@@ -81,6 +90,7 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
 
         private readonly HwndSource Source;
         private readonly IDeviceNotificationRegistrar Registrar;
+        private readonly ClipboardListenerRegistry ClipboardRegistry;
         private readonly Lock Locker = new();
         private readonly List<IDisposable> Registrations = [];
         private int Disposed;
@@ -88,6 +98,15 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
         private nint Hook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled) {
             var shouldPublish = Hwnd == hwnd && Volatile.Read(ref Disposed) == 0;
             if (shouldPublish) {
+                var isClipboardUpdate = msg == (int)WM.CLIPBOARDUPDATE;
+                if (isClipboardUpdate) {
+                    var clipboardChange = new ClipboardChange {
+                        SequenceNumber = ClipboardRegistry.GetSequenceNumber(),
+                    };
+                    SystemMessaged?.Invoke(this, new SystemMessageEventArgs(clipboardChange));
+                    handled = false;
+                    return 0;
+                }
                 foreach (var message in Win32Message.Interpret(msg, wParam, lParam)) {
                     SystemMessaged?.Invoke(this, new SystemMessageEventArgs(message));
                 }
@@ -100,9 +119,16 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
             Dispose();
         }
 
+        private bool OwnerLifetimeHasEnded(Dispatcher dispatcher) {
+            var sourceIsDisposed = Source.IsDisposed;
+            var messengerIsDisposed = Volatile.Read(ref Disposed) != 0;
+            var dispatcherIsShuttingDown = DispatcherIsShuttingDown(dispatcher);
+            return sourceIsDisposed || messengerIsDisposed || dispatcherIsShuttingDown;
+        }
+
         private void AddRegistration(IDisposable registration) {
             if (registration is null) {
-                throw new InvalidOperationException("The device registrar returned no owned registration.");
+                throw new InvalidOperationException("The system listener returned no owned registration.");
             }
             lock (Locker) {
                 if (Volatile.Read(ref Disposed) == 0) {
@@ -140,14 +166,18 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
                 }
             }
             if (errors.Count != 0) {
-                throw new AggregateException("Device listener cleanup failed.", errors);
+                throw new AggregateException("System listener cleanup failed.", errors);
             }
         }
 
-        internal Win32WindowsMessenger(nint hwnd, HwndSource source, IDeviceNotificationRegistrar registrar) {
+        internal Win32WindowsMessenger(nint hwnd,
+                                       HwndSource source,
+                                       IDeviceNotificationRegistrar registrar,
+                                       ClipboardListenerRegistry clipboardRegistry) {
             Hwnd = hwnd;
             Source = source;
             Registrar = registrar;
+            ClipboardRegistry = clipboardRegistry;
         }
 
         internal bool TryInitialize(CancellationToken cancellationToken) {
@@ -176,6 +206,24 @@ internal sealed class Win32WindowsMessengerFactory : ISystemMessengerFactory {
                         AddRegistration(Registrar.Register(Hwnd, interfaceClass));
                     }
                     cancellationToken.ThrowIfCancellationRequested();
+                    var ownerLifetimeHasEnded = OwnerLifetimeHasEnded(dispatcher);
+                    if (ownerLifetimeHasEnded) {
+                        return;
+                    }
+                    IDisposable clipboardRegistration;
+                    try {
+                        clipboardRegistration = ClipboardRegistry.Acquire(Source);
+                    }
+                    catch (ObjectDisposedException) {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return;
+                    }
+                    AddRegistration(clipboardRegistration);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    ownerLifetimeHasEnded = OwnerLifetimeHasEnded(dispatcher);
+                    if (ownerLifetimeHasEnded) {
+                        return;
+                    }
                     initialized = Volatile.Read(ref Disposed) == 0;
                 }
                 catch {

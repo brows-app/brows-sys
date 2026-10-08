@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Brows.Sys.Messages;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -89,6 +90,29 @@ internal sealed class SystemMessengerSetTest {
 
         Assert.That(messenger.SubscriptionCount, Is.Zero);
         Assert.That(messenger.DisposeCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ClipboardChangeIsForwardedThroughPublicMessageStream() {
+        var change = new ClipboardChange { SequenceNumber = uint.MaxValue };
+        var messenger = new RecordingMessenger();
+        var messengerSet = CreateMessengerSet(
+            new DelegateFactory(() => Task.FromResult<ISystemMessenger>(messenger)));
+        var enumerator = messengerSet.ReadSystemMessages(new object(), CancellationToken.None).GetAsyncEnumerator();
+        var moveNext = enumerator.MoveNextAsync().AsTask();
+
+        try {
+            await messenger.Subscribed.Task.WaitAsync(WaitTimeout);
+            messenger.Emit(change);
+
+            Assert.That(await moveNext.WaitAsync(WaitTimeout), Is.True);
+            Assert.That(enumerator.Current, Is.SameAs(change));
+            Assert.That(enumerator.Current.SystemMessageKind, Is.EqualTo(SystemMessageKind.Clipboard));
+            Assert.That(((ClipboardChange)enumerator.Current).SequenceNumber, Is.EqualTo(uint.MaxValue));
+        }
+        finally {
+            await DisposeEnumeratorAsync(enumerator);
+        }
     }
 
     [Test]
